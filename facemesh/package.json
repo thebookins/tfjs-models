@@ -18,7 +18,8 @@
   },
   "dependencies": {
     "@tensorflow-models/blazeface": "0.0.5",
-    "rimraf": "^3.0.2"
+    "rimraf": "^3.0.2",
+    "typescript": "~3.5.3"
   },
   "devDependencies": {
     "@rollup/plugin-commonjs": "^11.0.2",
