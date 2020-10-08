@@ -45,7 +45,8 @@
     "test": "ts-node --skip-ignore --project tsconfig.test.json run_tests.ts",
     "build-npm": "yarn build && rollup -c",
     "lint": "tslint -p . -t verbose",
-    "publish-demo": "./scripts/publish-demo.sh"
+    "publish-demo": "./scripts/publish-demo.sh",
+    "postinstall": "yarn build && rollup -c && yalc publish"
   },
   "license": "Apache-2.0"
 }
