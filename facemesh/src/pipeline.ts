@@ -228,6 +228,10 @@ export class Pipeline {
                                   [IRIS_LOWER_CENTER_INDEX]][2];
     const averageZ = (upperCenterZ + lowerCenterZ) / 2;
 
+    // just to keep the compiler happy...
+    // as it complains about unused variables
+    console.log(averageZ)
+
     //// Iris indices:
     //// 0: center | 1: right | 2: above | 3: left | 4: below
     //return irisCoords.map((coord: Coord3D, i): Coord3D => {
