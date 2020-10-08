@@ -4,7 +4,8 @@
   "scripts": {
     "diff": "./scripts/diff.js",
     "link-local": "yalc link",
-    "presubmit": "ts-node presubmit.ts"
+    "presubmit": "ts-node presubmit.ts",
+    "postinstall": "cd facemesh && npm install"
   },
   "devDependencies": {
     "@types/jasmine": "^3.4.0",
