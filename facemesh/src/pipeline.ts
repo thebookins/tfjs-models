@@ -392,10 +392,10 @@ export class Pipeline {
                 ['EyeUpper0', 'EyeLower0']);
           }
 
-          const adjustedLeftIrisCoords =
-              this.getAdjustedIrisCoords(rawCoords, leftIrisRawCoords, 'left');
-          const adjustedRightIrisCoords = this.getAdjustedIrisCoords(
-              rawCoords, rightIrisRawCoords, 'right');
+          const adjustedLeftIrisCoords = leftIrisRawCoords;
+              //this.getAdjustedIrisCoords(rawCoords, leftIrisRawCoords, 'left');
+          const adjustedRightIrisCoords = rightIrisRawCoords;
+              //this.getAdjustedIrisCoords(rawCoords, rightIrisRawCoords, 'right');
           rawCoords = rawCoords.concat(adjustedLeftIrisCoords)
                           .concat(adjustedRightIrisCoords);
         }
