@@ -228,17 +228,18 @@ export class Pipeline {
                                   [IRIS_LOWER_CENTER_INDEX]][2];
     const averageZ = (upperCenterZ + lowerCenterZ) / 2;
 
-    // Iris indices:
-    // 0: center | 1: right | 2: above | 3: left | 4: below
-    return irisCoords.map((coord: Coord3D, i): Coord3D => {
-      let z = averageZ;
-      if (i === 2) {
-        z = upperCenterZ;
-      } else if (i === 4) {
-        z = lowerCenterZ;
-      }
-      return [coord[0], coord[1], z];
-    });
+    //// Iris indices:
+    //// 0: center | 1: right | 2: above | 3: left | 4: below
+    //return irisCoords.map((coord: Coord3D, i): Coord3D => {
+    //  let z = averageZ;
+    //  if (i === 2) {
+    //    z = upperCenterZ;
+    //  } else if (i === 4) {
+    //    z = lowerCenterZ;
+    //  }
+    //  return [coord[0], coord[1], z];
+    //});
+    return irisCoords;
   }
 
   /**
@@ -392,10 +393,10 @@ export class Pipeline {
                 ['EyeUpper0', 'EyeLower0']);
           }
 
-          const adjustedLeftIrisCoords = leftIrisRawCoords;
-              //this.getAdjustedIrisCoords(rawCoords, leftIrisRawCoords, 'left');
-          const adjustedRightIrisCoords = rightIrisRawCoords;
-              //this.getAdjustedIrisCoords(rawCoords, rightIrisRawCoords, 'right');
+          const adjustedLeftIrisCoords =
+              this.getAdjustedIrisCoords(rawCoords, leftIrisRawCoords, 'left');
+          const adjustedRightIrisCoords = this.getAdjustedIrisCoords(
+              rawCoords, rightIrisRawCoords, 'right');
           rawCoords = rawCoords.concat(adjustedLeftIrisCoords)
                           .concat(adjustedRightIrisCoords);
         }
