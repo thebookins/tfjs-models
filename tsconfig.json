@@ -14,7 +14,7 @@
       "dom"
     ],
     "outDir": "./dist",
-    "noUnusedLocals": true,
+    "noUnusedLocals": false,
     "noImplicitReturns": true,
     "noImplicitThis": true,
     "alwaysStrict": true,
