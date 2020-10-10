@@ -21,8 +21,11 @@ import * as tf from '@tensorflow/tfjs-core';
 import '@tensorflow/tfjs-backend-webgl';
 import '@tensorflow/tfjs-backend-cpu';
 import * as tfjsWasm from '@tensorflow/tfjs-backend-wasm';
+import * as THREE from 'three';
 
 import { TRIANGULATION } from './triangulation';
+import { tensor2d } from '@tensorflow/tfjs-core';
+import { TLSSocket } from 'tls';
 
 tfjsWasm.setWasmPaths(
   `https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-wasm@${tfjsWasm.version_wasm}/dist/`);
@@ -33,9 +36,15 @@ const GREEN = '#32EEDB';
 const RED = "#FF2C35";
 const BLUE = "#0000FF";
 const WHITE = "#FFFFFF";
-const BLACK = "#000000";
-const GRAY = "#505050";
 
+var calculateMean = true;
+
+var noseDepthEstimate = {
+  angles: [],
+  xydist: [],
+  values: [],
+  estimate: null
+};
 
 function isMobile() {
   const isAndroid = /Android/i.test(navigator.userAgent);
@@ -44,7 +53,18 @@ function isMobile() {
 }
 
 function distance(a, b) {
+  // Distance between to 2D points, a and b
   return Math.sqrt(Math.pow(a[0] - b[0], 2) + Math.pow(a[1] - b[1], 2));
+}
+
+function distanceXYZ(a, b) {
+  // Distance between to ND points, a and b
+  var n, sum;
+  sum = 0.0;
+  for (n = 0; n < a.length; n++) {
+    sum += Math.pow(a[n] - b[n], 2);
+  }
+  return Math.sqrt(sum);
 }
 
 function drawPath(ctx, points, closePath) {
@@ -74,7 +94,7 @@ const stats = new Stats();
 const state = {
   backend: 'webgl',
   maxFaces: 1,
-  triangulateMesh: true,
+  triangulateMesh: false,
   predictIrises: true
 };
 
@@ -128,6 +148,222 @@ async function setupCamera() {
   });
 }
 
+function average(a, b) {
+  avg = [];
+  for (i = 0; i < a.length; i++) {
+      avg.push(0.5 * (a[i] + b[i]));
+  }
+  return avg;
+}
+
+function crossProduct(a, b) {
+  let aa = a.arraySync();
+  let bb = b.arraySync();
+  let x = aa[1] * bb[2] - aa[2] * bb[1];
+  let y = aa[2] * bb[0] - aa[0] * bb[2];
+  let z = aa[0] * bb[1] - aa[1] * bb[0];
+  return tf.tensor1d([x, y, z], 'float32');
+}
+
+function radToDegrees(rad) {
+  return rad * 180 / Math.PI;
+}
+
+function degToRadians(deg) {
+  return deg * Math.PI / 180;
+}
+
+function headCsysCanonical() {
+  let M = headCsysCanonical_threejs();
+  console.log(M);
+  // Coordinates from canonical_face_model.obj in mediapipe repo
+  let p_tL = tf.tensor1d([ 7.66418, 0.673132, -2.43587], 'float32');
+  let p_tR = tf.tensor1d([-7.66418, 0.673132, -2.43587], 'float32');
+  let p_iL = tf.tensor1d([ 3.32732, 0.104863,  4.11386], 'float32');
+  let p_iR = tf.tensor1d([-3.32732, 0.104863,  4.11386], 'float32'); 
+  // p0 - origin
+  let p0 = p_tL.stack(p_tR).mean(0);
+  // p1 = point on x axis, v1 = x-axis
+  let p1 = p_tL;
+  let v1 = p1.sub(p0);
+  let v1_norm = v1.div(v1.norm());
+  // p2 = point on z axis, v3 = z-axis
+  let p2 = p_iL.stack(p_iR).mean(0);
+  let v3 = p2.sub(p0);
+  let v3_norm = v3.div(v3.norm());
+  // v2 = y-axis
+  let v2 = crossProduct(v3_norm, v1_norm);
+  let v2_norm = v2.div(v2.norm());
+  // Recalculate v1 to ensure that csys is orthogonal
+  v1 = crossProduct(v2_norm, v3_norm);
+  v1_norm = v1.div(v1.norm());
+  // Clean-up
+  tf.dispose(p_tL, p_tR, p_iL, p_iR, p0, p1, p2, v1, v2, v3);
+  // Return matrix representing csys
+  tf.stack([v1_norm,v2_norm,v3_norm]).print();
+  return tf.stack([v1_norm,v2_norm,v3_norm]);
+}
+
+function headCsysFromPoints(ptL, ptR, piL, piR) {
+  // p0 - origin
+  let p0 = ptL.clone().lerp(ptR, 0.5);
+  // p1 = point on x axis, v1 = x-axis
+  let p1 = ptL.clone();
+  let v1 = new THREE.Vector3().subVectors(p1,p0).normalize();
+  // p2 = point on z axis, v3 = z-axis
+  let p2 = piL.clone().lerp(piR, 0.5);
+  let v3 = new THREE.Vector3().subVectors(p2,p0).normalize();
+  // v2 = y-axis
+  let v2 = new THREE.Vector3().crossVectors(v3, v1).normalize();
+  // Recalculate v1 to ensure that csys is orthogonal
+  v1.crossVectors(v2, v3).normalize();
+  // Clean-up
+  // Return matrix representing csys
+  let basis = new THREE.Matrix4().makeBasis(v1, v2, v3);
+  return new THREE.Matrix3().setFromMatrix4(basis);
+}
+
+function headCsysMoving_threejs(mesh) {
+  // Landmarks used to create coordinate system
+  const LMRK = {
+    TRAGION_L:  454,
+    TRAGION_R:  234,
+    INFRAORB_L: 330,
+    INFRAORB_R: 101
+  };
+  // Landmark coordinates
+  let ptL = new THREE.Vector3().fromArray(mesh[LMRK.TRAGION_L]);
+  let ptR = new THREE.Vector3().fromArray(mesh[LMRK.TRAGION_R]);
+  let piL = new THREE.Vector3().fromArray(mesh[LMRK.INFRAORB_L]);
+  let piR = new THREE.Vector3().fromArray(mesh[LMRK.INFRAORB_R]);
+  // Basis matrix
+  return headCsysFromPoints(ptL, ptR, piL, piR);
+}
+
+function headCsysCanonical_threejs() {
+  // Coordinates from canonical_face_model.obj in mediapipe repo
+  let ptL = new THREE.Vector3( 7.66418, 0.673132, -2.43587);
+  let ptR = new THREE.Vector3(-7.66418, 0.673132, -2.43587);
+  let piL = new THREE.Vector3( 3.32732, 0.104863,  4.11386);
+  let piR = new THREE.Vector3(-3.32732, 0.104863,  4.11386);
+  // Basis matrix
+  return headCsysFromPoints(ptL, ptR, piL, piR);  
+}
+
+  // p0 - origin
+  //let p0 = p_tL.clone();
+  //p0.lerp(p_tR, 0.5);
+  // p1 = point on x axis, v1 = x-axis
+  //let p1 = p_tL.clone();
+  //let v1_norm = new THREE.Vector3();
+  //v1_norm.subVectors(p1,p0).normalize();
+  // p2 = point on z axis, v3 = z-axis
+  //let p2 = p_iL.clone();
+  //p2.lerp(p_iR, 0.5);
+  //let v3_norm = new THREE.Vector3();
+  //v3_norm.subVectors(p2,p0).normalize();
+  // v2 = y-axis
+  //let v2_norm = new THREE.Vector3();
+  //v2_norm.crossVectors(v3_norm, v1_norm).normalize();
+  // Recalculate v1 to ensure that csys is orthogonal
+  //v1_norm.crossVectors(v2_norm, v3_norm).normalize();
+  // Clean-up
+  // Return matrix representing csys
+  //let basis = new THREE.Matrix4();
+  //basis.makeBasis(v1_norm, v2_norm, v3_norm);
+  //let R = new THREE.Matrix3();
+  //R.setFromMatrix4(basis);
+  //console.log(R);
+//}
+
+function headCsys(mesh) {
+  let M = headCsysMoving_threejs(mesh);
+  console.log(M);
+  // Landmarks used to create coordinate system
+  const LM_TRAGIONL  = 454;
+  const LM_TRAGIONR  = 234;
+  const LM_INFRAORBL = 330; 
+  const LM_INFRAORBR = 101;
+  // Landmark coordinates
+  let p_tL = tf.tensor1d(mesh[LM_TRAGIONL],  'float32');
+  let p_tR = tf.tensor1d(mesh[LM_TRAGIONR],  'float32');
+  let p_iL = tf.tensor1d(mesh[LM_INFRAORBL], 'float32');
+  let p_iR = tf.tensor1d(mesh[LM_INFRAORBR], 'float32');
+  // Visualise additional landmarks
+  ctx.fillStyle = BLUE;
+  ctx.strokeStyle = BLUE;
+  ctx.lineWidth = 1;  
+  ctx.beginPath();
+  ctx.arc(mesh[LM_INFRAORBL][0], mesh[LM_INFRAORBL][1], 3 /* radius */, 0, 2 * Math.PI);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(mesh[LM_INFRAORBR][0], mesh[LM_INFRAORBR][1], 3 /* radius */, 0, 2 * Math.PI);
+  ctx.stroke();
+  // p0 = origin
+  let p0 = p_tL.stack(p_tR).mean(0);
+  // p1 = point on x axis, v1 = x-axis
+  let p1 = p_tL;
+  let v1 = p1.sub(p0);
+  let v1_norm = v1.div(v1.norm());
+  // p2 = point on z axis, v3 = z-axis
+  let p2 = p_iL.stack(p_iR).mean(0);
+  let v3 = p2.sub(p0);
+  let v3_norm = v3.div(v3.norm());
+  // v2 = y-axis
+  let v2 = crossProduct(v3_norm, v1_norm);
+  let v2_norm = v2.div(v2.norm());
+  // Recalculate v1 to ensure that csys is orthogonal
+  v1 = crossProduct(v2_norm, v3_norm);
+  v1_norm = v1.div(v1.norm());
+  // Clean-up
+  tf.dispose(p_tL, p_tR, p_iL, p_iR, p0, p1, p2, v1, v2, v3);
+  // Return matrix representing csys
+  tf.stack([v1_norm,v2_norm,v3_norm]).print();
+  return tf.stack([v1_norm,v2_norm,v3_norm]);
+}
+
+function estimateNoseDepth(mesh, irisScaleFactor) {
+  // Landmark list
+  const LM_NOSE_T = 4;
+  const LM_NOSE_L = 278;
+  const LM_NOSE_R = 48;
+  // Landmark coordinates
+  let p_nt = mesh[LM_NOSE_T];
+  let p_nl = tf.tensor1d(mesh[LM_NOSE_L], 'float32');
+  let p_nr = tf.tensor1d(mesh[LM_NOSE_R], 'float32');
+  let p_nm = p_nl.stack(p_nr).mean(0).arraySync();
+  // Get xy distance between points. Apply irisScaleFactor to remove scaling effect
+  // when user moves closer / further away from the camera
+  let xy = distance(p_nt, p_nm) * irisScaleFactor;
+  //console.log(xy);
+  return xy;
+}
+
+function headPose(mesh) {
+      // Head coordinate system - For head post
+      let M = headCsys(mesh).arraySync();
+      let G = headCsysCanonical().arraySync();
+      //let gloX = tf.tensor1d([1.0,0,0], 'float32');
+      //let gloY = tf.tensor1d([0,1.0,0], 'float32');
+      //let gloZ = tf.tensor1d([0,0,1.0], 'float32');
+      let gloX = tf.tensor1d(G[0], 'float32');
+      let gloY = tf.tensor1d(G[1], 'float32');
+      let gloZ = tf.tensor1d(G[2], 'float32');
+      let locZ = tf.tensor1d(M[2], 'float32');
+      var poseLR  = radToDegrees(tf.asin(tf.dot(gloX, locZ)).arraySync());
+      let poseUD  = radToDegrees(tf.asin(tf.dot(gloY, locZ)).arraySync());
+      //let poseROT = radToDegrees(tf.asin(tf.dot(gloY, locX)).arraySync());
+      let angleLR  = Math.abs(poseLR);
+      let facingLR = poseLR >= 0.0 ? 'LEFT' : 'RIGHT';
+      let angleUD  = Math.abs(poseUD);
+      let facingUD = poseUD <= 0.0 ? 'UPWARDS' : 'DOWNWARDS';
+      let headPosition = "Head position: " + angleLR.toFixed(1) + " deg to the " + facingLR;
+      headPosition += " and " + angleUD.toFixed(1) + " deg " + facingUD;
+      document.getElementById('head-pose').innerHTML = headPosition;
+      // return
+      return [poseLR, poseUD]
+}
+
 function getLandmarkMeasurements(prediction) {
 
   //console.log(prediction);
@@ -144,6 +380,8 @@ function getLandmarkMeasurements(prediction) {
   const landmark_noseTip = 4;
   const landmark_sellion = 168;
   const landmark_supramenton = 200;
+  const landmark_infraorbR = 101;
+  const landmark_infraorbL = 330;  
 
   // Face height
   const faceHeight = distance(
@@ -241,6 +479,7 @@ function getLandmarkMeasurements(prediction) {
   ctx.fill();
 
   // Iris model
+  var irisScaleFactor = null;
   if (scaledMesh.length > NUM_KEYPOINTS) {
 
     ctx.fillStyle = RED;
@@ -276,8 +515,9 @@ function getLandmarkMeasurements(prediction) {
 
     // Scale all measurements using the iris diameter
     // Iris diameter should be 11.7 +- 0.5mm
+    const cf = 1.1;
     const irisDiameter = 0.5 * (leftDiameter + rightDiameter);
-    const irisScaleFactor = 11.7 / irisDiameter;
+    var irisScaleFactor = cf * 11.7 / irisDiameter;
 
     const fh = faceHeightScaled * irisScaleFactor;
     document.getElementById('measure-face-height').innerHTML = "Sellion-supramenton = " + fh.toFixed(1) + " mm";
@@ -297,6 +537,8 @@ function getLandmarkMeasurements(prediction) {
     document.getElementById('measure-scaled-iris-diameter-L').innerHTML = "";
     document.getElementById('measure-scaled-iris-diameter-R').innerHTML = "";
   }
+
+  return irisScaleFactor;
 
 }
 
@@ -371,9 +613,44 @@ async function renderPrediction() {
           ctx.stroke();
         }
       }
-      // Plots landmarks and update landmark measurements
-      getLandmarkMeasurements(prediction);
 
+      // Head pose
+      let hp = headPose(prediction.scaledMesh);
+      let poseLR = hp[0];
+      let poseUD = hp[1];
+
+      // Plots landmarks and update landmark measurements
+      let irisScaleFactor = getLandmarkMeasurements(prediction);
+      if (irisScaleFactor != null) {
+
+        // Estimate nose depth
+        let angleLR = Math.abs(poseLR);
+        let angleUD = Math.abs(poseUD);
+        if ((angleLR >= 10.0) && (angleLR <= 30.0) && (angleUD <= 10.0)) {
+
+          let xyDistance = estimateNoseDepth(prediction.scaledMesh, irisScaleFactor);
+
+          if (noseDepthEstimate.values.length < 50) {
+            let nd = xyDistance / Math.sin(degToRadians(angleLR));
+            noseDepthEstimate.values.push(nd);
+            noseDepthEstimate.angles.push(angleLR);
+            noseDepthEstimate.xydist.push(xyDistance);
+          } else if ((noseDepthEstimate.values.length == 50) && (calculateMean)) {
+            // NOTE: Probably better to replace this with a linear regression of angles vs xydist, then 
+            //       extrapolate this curve to a value of angle = 90 degrees. 
+            // Also need a way of accounting for length due to angleUD. This will particularly influence 
+            // the values of xyDistance at low angleLR values
+            // BETTER YET: Also include angleUD in the regression, and then find the values of angleLR and
+            //             angleUD such that length is 0 (call this angleUD = alpha). Then extrapolate to 
+            //             the nose depth at angleLR = 90 deg and angleUD = alpha deg ie. no contribution 
+            //             from angleUD
+            noseDepthEstimate.estimate = tf.tensor1d(noseDepthEstimate.values, 'float32').mean(0).arraySync();
+            console.log(noseDepthEstimate);
+            calculateMean = false;
+          }
+        }
+      }
+      
     });
 
     if (renderPointcloud && state.renderPointcloud && scatterGL != null) {
