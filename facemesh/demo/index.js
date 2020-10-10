@@ -22,6 +22,7 @@ import '@tensorflow/tfjs-backend-webgl';
 import '@tensorflow/tfjs-backend-cpu';
 import * as tfjsWasm from '@tensorflow/tfjs-backend-wasm';
 import * as THREE from 'three';
+//import * as THREE from 'https://unpkg.com/three@0.106.2/build/three.min.js';
 
 import { TRIANGULATION } from './triangulation';
 import { tensor2d } from '@tensorflow/tfjs-core';
@@ -36,6 +37,19 @@ const GREEN = '#32EEDB';
 const RED = "#FF2C35";
 const BLUE = "#0000FF";
 const WHITE = "#FFFFFF";
+
+// Landmark list
+const LMRK = {
+  infraorb_L: 330,
+  infraorb_R: 101,
+  nose_L: 278,
+  nose_R: 48,
+  nosetip: 4,
+  sellion: 168,
+  supramenton: 200,
+  tragion_L: 454,
+  tragion_R: 234
+};
 
 var calculateMean = true;
 
@@ -55,16 +69,6 @@ function isMobile() {
 function distance(a, b) {
   // Distance between to 2D points, a and b
   return Math.sqrt(Math.pow(a[0] - b[0], 2) + Math.pow(a[1] - b[1], 2));
-}
-
-function distanceXYZ(a, b) {
-  // Distance between to ND points, a and b
-  var n, sum;
-  sum = 0.0;
-  for (n = 0; n < a.length; n++) {
-    sum += Math.pow(a[n] - b[n], 2);
-  }
-  return Math.sqrt(sum);
 }
 
 function drawPath(ctx, points, closePath) {
@@ -148,99 +152,38 @@ async function setupCamera() {
   });
 }
 
-function average(a, b) {
-  avg = [];
-  for (i = 0; i < a.length; i++) {
-      avg.push(0.5 * (a[i] + b[i]));
-  }
-  return avg;
-}
-
-function crossProduct(a, b) {
-  let aa = a.arraySync();
-  let bb = b.arraySync();
-  let x = aa[1] * bb[2] - aa[2] * bb[1];
-  let y = aa[2] * bb[0] - aa[0] * bb[2];
-  let z = aa[0] * bb[1] - aa[1] * bb[0];
-  return tf.tensor1d([x, y, z], 'float32');
-}
-
-function radToDegrees(rad) {
-  return rad * 180 / Math.PI;
-}
-
-function degToRadians(deg) {
-  return deg * Math.PI / 180;
-}
-
-function headCsysCanonical() {
-  let M = headCsysCanonical_threejs();
-  console.log(M);
-  // Coordinates from canonical_face_model.obj in mediapipe repo
-  let p_tL = tf.tensor1d([ 7.66418, 0.673132, -2.43587], 'float32');
-  let p_tR = tf.tensor1d([-7.66418, 0.673132, -2.43587], 'float32');
-  let p_iL = tf.tensor1d([ 3.32732, 0.104863,  4.11386], 'float32');
-  let p_iR = tf.tensor1d([-3.32732, 0.104863,  4.11386], 'float32'); 
-  // p0 - origin
-  let p0 = p_tL.stack(p_tR).mean(0);
-  // p1 = point on x axis, v1 = x-axis
-  let p1 = p_tL;
-  let v1 = p1.sub(p0);
-  let v1_norm = v1.div(v1.norm());
-  // p2 = point on z axis, v3 = z-axis
-  let p2 = p_iL.stack(p_iR).mean(0);
-  let v3 = p2.sub(p0);
-  let v3_norm = v3.div(v3.norm());
-  // v2 = y-axis
-  let v2 = crossProduct(v3_norm, v1_norm);
-  let v2_norm = v2.div(v2.norm());
-  // Recalculate v1 to ensure that csys is orthogonal
-  v1 = crossProduct(v2_norm, v3_norm);
-  v1_norm = v1.div(v1.norm());
-  // Clean-up
-  tf.dispose(p_tL, p_tR, p_iL, p_iR, p0, p1, p2, v1, v2, v3);
-  // Return matrix representing csys
-  tf.stack([v1_norm,v2_norm,v3_norm]).print();
-  return tf.stack([v1_norm,v2_norm,v3_norm]);
-}
-
 function headCsysFromPoints(ptL, ptR, piL, piR) {
   // p0 - origin
   let p0 = ptL.clone().lerp(ptR, 0.5);
   // p1 = point on x axis, v1 = x-axis
   let p1 = ptL.clone();
-  let v1 = new THREE.Vector3().subVectors(p1,p0).normalize();
+  let v1 = new THREE.Vector3().subVectors(p1, p0).normalize();
   // p2 = point on z axis, v3 = z-axis
   let p2 = piL.clone().lerp(piR, 0.5);
-  let v3 = new THREE.Vector3().subVectors(p2,p0).normalize();
+  let v3 = new THREE.Vector3().subVectors(p2, p0).normalize();
   // v2 = y-axis
   let v2 = new THREE.Vector3().crossVectors(v3, v1).normalize();
   // Recalculate v1 to ensure that csys is orthogonal
   v1.crossVectors(v2, v3).normalize();
-  // Clean-up
   // Return matrix representing csys
   let basis = new THREE.Matrix4().makeBasis(v1, v2, v3);
   return new THREE.Matrix3().setFromMatrix4(basis);
 }
 
-function headCsysMoving_threejs(mesh) {
-  // Landmarks used to create coordinate system
-  const LMRK = {
-    TRAGION_L:  454,
-    TRAGION_R:  234,
-    INFRAORB_L: 330,
-    INFRAORB_R: 101
-  };
+function headCsysMoving(mesh) {
   // Landmark coordinates
-  let ptL = new THREE.Vector3().fromArray(mesh[LMRK.TRAGION_L]);
-  let ptR = new THREE.Vector3().fromArray(mesh[LMRK.TRAGION_R]);
-  let piL = new THREE.Vector3().fromArray(mesh[LMRK.INFRAORB_L]);
-  let piR = new THREE.Vector3().fromArray(mesh[LMRK.INFRAORB_R]);
+  let ptL = new THREE.Vector3().fromArray(mesh[LMRK.tragion_L]);
+  let ptR = new THREE.Vector3().fromArray(mesh[LMRK.tragion_R]);
+  let piL = new THREE.Vector3().fromArray(mesh[LMRK.infraorb_L]);
+  let piR = new THREE.Vector3().fromArray(mesh[LMRK.infraorb_R]);
+  // Plot the landmarks
+  plotLandmark(piL);
+  plotLandmark(piR);
   // Basis matrix
   return headCsysFromPoints(ptL, ptR, piL, piR);
 }
 
-function headCsysCanonical_threejs() {
+function headCsysCanonical() {
   // Coordinates from canonical_face_model.obj in mediapipe repo
   let ptL = new THREE.Vector3( 7.66418, 0.673132, -2.43587);
   let ptR = new THREE.Vector3(-7.66418, 0.673132, -2.43587);
@@ -250,118 +193,140 @@ function headCsysCanonical_threejs() {
   return headCsysFromPoints(ptL, ptR, piL, piR);  
 }
 
-  // p0 - origin
-  //let p0 = p_tL.clone();
-  //p0.lerp(p_tR, 0.5);
-  // p1 = point on x axis, v1 = x-axis
-  //let p1 = p_tL.clone();
-  //let v1_norm = new THREE.Vector3();
-  //v1_norm.subVectors(p1,p0).normalize();
-  // p2 = point on z axis, v3 = z-axis
-  //let p2 = p_iL.clone();
-  //p2.lerp(p_iR, 0.5);
-  //let v3_norm = new THREE.Vector3();
-  //v3_norm.subVectors(p2,p0).normalize();
-  // v2 = y-axis
-  //let v2_norm = new THREE.Vector3();
-  //v2_norm.crossVectors(v3_norm, v1_norm).normalize();
-  // Recalculate v1 to ensure that csys is orthogonal
-  //v1_norm.crossVectors(v2_norm, v3_norm).normalize();
-  // Clean-up
-  // Return matrix representing csys
-  //let basis = new THREE.Matrix4();
-  //basis.makeBasis(v1_norm, v2_norm, v3_norm);
-  //let R = new THREE.Matrix3();
-  //R.setFromMatrix4(basis);
-  //console.log(R);
-//}
+function plotLandmark(lmrk, radius=3, colour=BLUE, lineWidth=1) {
+  ctx.fillStyle = colour;
+  ctx.strokeStyle = colour;
+  ctx.lineWidth = lineWidth;
+  ctx.beginPath();
+  ctx.arc(lmrk.x, lmrk.y, radius, 0, 2 * Math.PI);
+  ctx.stroke();
+}
 
-function headCsys(mesh) {
-  let M = headCsysMoving_threejs(mesh);
-  console.log(M);
-  // Landmarks used to create coordinate system
-  const LM_TRAGIONL  = 454;
-  const LM_TRAGIONR  = 234;
-  const LM_INFRAORBL = 330; 
-  const LM_INFRAORBR = 101;
-  // Landmark coordinates
-  let p_tL = tf.tensor1d(mesh[LM_TRAGIONL],  'float32');
-  let p_tR = tf.tensor1d(mesh[LM_TRAGIONR],  'float32');
-  let p_iL = tf.tensor1d(mesh[LM_INFRAORBL], 'float32');
-  let p_iR = tf.tensor1d(mesh[LM_INFRAORBR], 'float32');
-  // Visualise additional landmarks
-  ctx.fillStyle = BLUE;
-  ctx.strokeStyle = BLUE;
-  ctx.lineWidth = 1;  
-  ctx.beginPath();
-  ctx.arc(mesh[LM_INFRAORBL][0], mesh[LM_INFRAORBL][1], 3 /* radius */, 0, 2 * Math.PI);
-  ctx.stroke();
-  ctx.beginPath();
-  ctx.arc(mesh[LM_INFRAORBR][0], mesh[LM_INFRAORBR][1], 3 /* radius */, 0, 2 * Math.PI);
-  ctx.stroke();
-  // p0 = origin
-  let p0 = p_tL.stack(p_tR).mean(0);
-  // p1 = point on x axis, v1 = x-axis
-  let p1 = p_tL;
-  let v1 = p1.sub(p0);
-  let v1_norm = v1.div(v1.norm());
-  // p2 = point on z axis, v3 = z-axis
-  let p2 = p_iL.stack(p_iR).mean(0);
-  let v3 = p2.sub(p0);
-  let v3_norm = v3.div(v3.norm());
-  // v2 = y-axis
-  let v2 = crossProduct(v3_norm, v1_norm);
-  let v2_norm = v2.div(v2.norm());
-  // Recalculate v1 to ensure that csys is orthogonal
-  v1 = crossProduct(v2_norm, v3_norm);
-  v1_norm = v1.div(v1.norm());
-  // Clean-up
-  tf.dispose(p_tL, p_tR, p_iL, p_iR, p0, p1, p2, v1, v2, v3);
-  // Return matrix representing csys
-  tf.stack([v1_norm,v2_norm,v3_norm]).print();
-  return tf.stack([v1_norm,v2_norm,v3_norm]);
+function headPose(mesh) {
+  let M = headCsysMoving(mesh); // Moving csys
+  let F = headCsysCanonical();  // Fixed csys
+  let f1 = new THREE.Vector3();
+  let f2 = new THREE.Vector3();
+  let f3 = new THREE.Vector3();
+  F.extractBasis(f1, f2, f3);
+  let m1 = new THREE.Vector3();
+  let m2 = new THREE.Vector3();
+  let m3 = new THREE.Vector3();
+  M.extractBasis(m1, m2, m3);
+  // Rotation matrix
+  let r1 = new THREE.Vector3().set(m1.dot(f1), m1.dot(f2), m1.dot(f3));
+  let r2 = new THREE.Vector3().set(m2.dot(f1), m2.dot(f2), m2.dot(f3));
+  let r3 = new THREE.Vector3().set(m3.dot(f1), m3.dot(f2), m3.dot(f3));
+  let RM = new THREE.Matrix4().makeBasis(r1, r2, r3); 
+  // Head planes - Used for intersections
+  let headPlanes = {
+    'frontal'   : new THREE.Plane(m3, 0.0),
+    'coronal'   : new THREE.Plane(m1, 0.0), 
+    'transverse': new THREE.Plane(m2, 0.0) 
+  };
+  // Euler angles
+  let eulerAnglesRad = new THREE.Euler().setFromRotationMatrix (RM, 'XYZ').toArray();
+  let eulerAngles = [];
+  for (let i = 0; i < 3; i++) {
+    let a = THREE.MathUtils.radToDeg(eulerAnglesRad[i]);
+    // NOTE: M is already rotated 180 degrees about F, so correct angles 
+    // to within -90 to +90 range
+    if (a >  90) {a = a - 180; }
+    if (a < -90) {a = a + 180; }
+    eulerAngles.push(a);
+  }
+  // Update html
+  updateHeadPoseValues(eulerAngles);
+  // Estimate nose width
+  //calculateNoseWidth(mesh, headPlanes);
+  // Estimate nose depth
+  calculateNoseDepth(mesh, headPlanes);  
+  // Return
+  return eulerAngles;
+}
+
+function calculateNoseWidth(mesh, headPlanes) {
+  // Ray - nose_L
+  let pnL = new THREE.Vector3().fromArray(mesh[LMRK.nose_L]);
+  let nL_origin = new THREE.Vector3(pnL.x, pnL.y, 0);
+  let nL_dir    = new THREE.Vector3(0,0,1);
+  let nL_ray    = new THREE.Ray(nL_origin, nL_dir);
+  // Ray - nose_R
+  let pnR = new THREE.Vector3().fromArray(mesh[LMRK.nose_R]);
+  let nR_origin = new THREE.Vector3(pnR.x, pnR.y, 0);
+  let nR_dir    = new THREE.Vector3(0,0,1);
+  let nR_ray    = new THREE.Ray(nR_origin, nR_dir);  
+  // Get intersection points
+  // nose_L
+  let nL_intersect = new THREE.Vector3();
+  nL_ray.intersectPlane(headPlanes.frontal, nL_intersect);
+  // nose_R
+  let nR_intersect = new THREE.Vector3();
+  nR_ray.intersectPlane(headPlanes.frontal, nR_intersect); 
+  // Get 3D distance between intersection points 
+  let noseWidth = nL_intersect.distanceTo(nR_intersect);
+  console.log(noseWidth);
+}
+
+function calculateNoseDepth(mesh, headPlanes) {
+  // Get points
+  let pnL = new THREE.Vector3().fromArray(mesh[LMRK.nose_L]);
+  let pnR = new THREE.Vector3().fromArray(mesh[LMRK.nose_R]);
+  let pnT = new THREE.Vector3().fromArray(mesh[LMRK.nosetip]);
+  let pnLRavg = pnL.clone().lerp(pnR, 0.5);
+  // Ray - nose tip
+  let nT_origin = new THREE.Vector3(pnT.x, pnT.y, 0);
+  let nT_dir    = new THREE.Vector3(0,0,1);
+  let nT_ray    = new THREE.Ray(nT_origin, nT_dir);
+  // Ray - nose_LRavg
+  let nLRavg_origin = new THREE.Vector3(pnLRavg.x, pnLRavg.y, 0);
+  let nLRavg_dir    = new THREE.Vector3(0,0,1);
+  let nLRavg_ray    = new THREE.Ray(nLRavg_origin, nLRavg_dir);  
+  // Get intersection points
+  // nose tip
+  let nT_intersect = new THREE.Vector3();
+  nT_ray.intersectPlane(headPlanes.transverse, nT_intersect);
+  // nose_LRavg
+  let nLRavg_intersect = new THREE.Vector3();
+  nLRavg_ray.intersectPlane(headPlanes.transverse, nLRavg_intersect); 
+  // Get 3D distance between intersection points 
+  let noseDepth = nT_intersect.distanceTo(nLRavg_intersect);
+  console.log(noseDepth);
+}
+
+function updateHeadPoseValues(eulerAngles) {
+  // Un-pack euler angles
+  let rotX = eulerAngles[0]; // Up-down (Down is +ve)
+  let rotY = eulerAngles[1]; // Left-right (Left is +ve)
+  let rotZ = eulerAngles[2]; // Rotate left-right (Right is +ve)
+  // Up-down
+  let facing_updown = rotX >= 0.0 ? 'DOWNWARDS' : 'UPWARDS';
+  let angle_updown  = Math.abs(rotX);
+  // Left-right
+  let facing_leftright = rotY >= 0.0 ? 'LEFT' : 'RIGHT';
+  let angle_leftright  = Math.abs(rotY);
+  // Rotate_leftright
+  let facing_rotate = rotZ >= 0.0 ? 'RIGHT' : 'LEFT';
+  let angle_rotate  = Math.abs(rotZ);  
+  // Head pose string
+  let headPosition = "Head position: Turned ";
+  headPosition += angle_leftright.toFixed(1) + " deg to the " + facing_leftright;
+  headPosition += " and " + angle_updown.toFixed(1) + " deg " + facing_updown;
+  headPosition += " and " + angle_rotate.toFixed(1) + " deg rotated to the " + facing_rotate;
+  document.getElementById('head-pose').innerHTML = headPosition;
 }
 
 function estimateNoseDepth(mesh, irisScaleFactor) {
-  // Landmark list
-  const LM_NOSE_T = 4;
-  const LM_NOSE_L = 278;
-  const LM_NOSE_R = 48;
   // Landmark coordinates
-  let p_nt = mesh[LM_NOSE_T];
-  let p_nl = tf.tensor1d(mesh[LM_NOSE_L], 'float32');
-  let p_nr = tf.tensor1d(mesh[LM_NOSE_R], 'float32');
+  let p_nt = mesh[LMRK.nosetip];
+  let p_nl = tf.tensor1d(mesh[LMRK.nose_L], 'float32');
+  let p_nr = tf.tensor1d(mesh[LMRK.nose_R], 'float32');
   let p_nm = p_nl.stack(p_nr).mean(0).arraySync();
   // Get xy distance between points. Apply irisScaleFactor to remove scaling effect
   // when user moves closer / further away from the camera
   let xy = distance(p_nt, p_nm) * irisScaleFactor;
   //console.log(xy);
   return xy;
-}
-
-function headPose(mesh) {
-      // Head coordinate system - For head post
-      let M = headCsys(mesh).arraySync();
-      let G = headCsysCanonical().arraySync();
-      //let gloX = tf.tensor1d([1.0,0,0], 'float32');
-      //let gloY = tf.tensor1d([0,1.0,0], 'float32');
-      //let gloZ = tf.tensor1d([0,0,1.0], 'float32');
-      let gloX = tf.tensor1d(G[0], 'float32');
-      let gloY = tf.tensor1d(G[1], 'float32');
-      let gloZ = tf.tensor1d(G[2], 'float32');
-      let locZ = tf.tensor1d(M[2], 'float32');
-      var poseLR  = radToDegrees(tf.asin(tf.dot(gloX, locZ)).arraySync());
-      let poseUD  = radToDegrees(tf.asin(tf.dot(gloY, locZ)).arraySync());
-      //let poseROT = radToDegrees(tf.asin(tf.dot(gloY, locX)).arraySync());
-      let angleLR  = Math.abs(poseLR);
-      let facingLR = poseLR >= 0.0 ? 'LEFT' : 'RIGHT';
-      let angleUD  = Math.abs(poseUD);
-      let facingUD = poseUD <= 0.0 ? 'UPWARDS' : 'DOWNWARDS';
-      let headPosition = "Head position: " + angleLR.toFixed(1) + " deg to the " + facingLR;
-      headPosition += " and " + angleUD.toFixed(1) + " deg " + facingUD;
-      document.getElementById('head-pose').innerHTML = headPosition;
-      // return
-      return [poseLR, poseUD]
 }
 
 function getLandmarkMeasurements(prediction) {
@@ -372,108 +337,97 @@ function getLandmarkMeasurements(prediction) {
   const scaledMesh = prediction.scaledMesh;
   let x, y;
 
-  // Landmark list
-  const landmark_faceL = 454;
-  const landmark_faceR = 234;
-  const landmark_noseL = 278;
-  const landmark_noseR = 48;
-  const landmark_noseTip = 4;
-  const landmark_sellion = 168;
-  const landmark_supramenton = 200;
-  const landmark_infraorbR = 101;
-  const landmark_infraorbL = 330;  
-
   // Face height
   const faceHeight = distance(
-    mesh[landmark_sellion],
-    mesh[landmark_supramenton]);
+    mesh[LMRK.sellion],
+    mesh[LMRK.supramenton]);
 
   const faceHeightScaled = distance(
-    scaledMesh[landmark_sellion],
-    scaledMesh[landmark_supramenton]);
+    scaledMesh[LMRK.sellion],
+    scaledMesh[LMRK.supramenton]);
 
   ctx.fillStyle = BLUE;
   ctx.strokeStyle = BLUE;
   ctx.lineWidth = 1;
-  x = scaledMesh[landmark_sellion][0];
-  y = scaledMesh[landmark_sellion][1];
+  x = scaledMesh[LMRK.sellion][0];
+  y = scaledMesh[LMRK.sellion][1];
   ctx.beginPath();
   ctx.arc(x, y, 3 /* radius */, 0, 2 * Math.PI);
   ctx.fill();
-  x = scaledMesh[landmark_supramenton][0];
-  y = scaledMesh[landmark_supramenton][1];
+  x = scaledMesh[LMRK.supramenton][0];
+  y = scaledMesh[LMRK.supramenton][1];
   ctx.beginPath();
   ctx.arc(x, y, 3 /* radius */, 0, 2 * Math.PI);
   ctx.fill();
 
   // Face width
   const faceWidth = distance(
-    mesh[landmark_faceL],
-    mesh[landmark_faceR]);
+    mesh[LMRK.tragion_L],
+    mesh[LMRK.tragion_R]);
 
   const faceWidthScaled = distance(
-    scaledMesh[landmark_faceL],
-    scaledMesh[landmark_faceR]);
+    scaledMesh[LMRK.tragion_L],
+    scaledMesh[LMRK.tragion_R]);
 
   ctx.fillStyle = RED;
   ctx.strokeStyle = RED;
   ctx.lineWidth = 1;
-  x = scaledMesh[landmark_faceL][0];
-  y = scaledMesh[landmark_faceL][1];
+  x = scaledMesh[LMRK.tragion_L][0];
+  y = scaledMesh[LMRK.tragion_L][1];
   ctx.beginPath();
   ctx.arc(x, y, 3 /* radius */, 0, 2 * Math.PI);
   ctx.fill();
-  x = scaledMesh[landmark_faceR][0];
-  y = scaledMesh[landmark_faceR][1];
+  x = scaledMesh[LMRK.tragion_R][0];
+  y = scaledMesh[LMRK.tragion_R][1];
   ctx.beginPath();
   ctx.arc(x, y, 3 /* radius */, 0, 2 * Math.PI);
   ctx.fill();
 
   // Nose width
   const noseWidth = distance(
-    mesh[landmark_noseL],
-    mesh[landmark_noseR]);
+    mesh[LMRK.nose_L],
+    mesh[LMRK.nose_R]);
 
   const noseWidthScaled = distance(
-    scaledMesh[landmark_noseL],
-    scaledMesh[landmark_noseR]);
+    scaledMesh[LMRK.nose_L],
+    scaledMesh[LMRK.nose_R]);
 
   ctx.fillStyle = WHITE;
   ctx.strokeStyle = WHITE;
   ctx.lineWidth = 1;
-  x = scaledMesh[landmark_noseL][0];
-  y = scaledMesh[landmark_noseL][1];
+  x = scaledMesh[LMRK.nose_L][0];
+  y = scaledMesh[LMRK.nose_L][1];
   ctx.beginPath();
   ctx.arc(x, y, 3 /* radius */, 0, 2 * Math.PI);
   ctx.fill();
-  x = scaledMesh[landmark_noseR][0];
-  y = scaledMesh[landmark_noseR][1];
+  x = scaledMesh[LMRK.nose_R][0];
+  y = scaledMesh[LMRK.nose_R][1];
   ctx.beginPath();
   ctx.arc(x, y, 3 /* radius */, 0, 2 * Math.PI);
   ctx.fill();
 
   // Nose depth
   const noseDepthL = distance(
-    mesh[landmark_noseL],
-    mesh[landmark_noseTip]);
+    mesh[LMRK.nose_L],
+    mesh[LMRK.nosetip]);
   const noseDepthR = distance(
-    mesh[landmark_noseR],
-    mesh[landmark_noseTip]);
+    mesh[LMRK.nose_R],
+    mesh[LMRK.nosetip]);
   const noseDepth = 0.5 * (noseDepthL + noseDepthR);
 
   const noseDepthScaledL = distance(
-    scaledMesh[landmark_noseL],
-    scaledMesh[landmark_noseTip]);
+    scaledMesh[LMRK.nose_L],
+    scaledMesh[LMRK.nosetip]);
   const noseDepthScaledR = distance(
-    scaledMesh[landmark_noseR],
-    scaledMesh[landmark_noseTip]);
+    scaledMesh[LMRK.nose_R],
+    scaledMesh[LMRK.nosetip]);
   const noseDepthScaled = 0.5 * (noseDepthScaledL + noseDepthScaledR);
 
   ctx.fillStyle = WHITE;
   ctx.strokeStyle = WHITE;
   ctx.lineWidth = 1;
-  x = scaledMesh[landmark_noseTip][0];
-  y = scaledMesh[landmark_noseTip][1];
+  x = scaledMesh[LMRK.nosetip][0];
+  y = scaledMesh[LMRK.nosetip][1];
   ctx.beginPath();
   ctx.arc(x, y, 3 /* radius */, 0, 2 * Math.PI);
   ctx.fill();
@@ -631,7 +585,7 @@ async function renderPrediction() {
           let xyDistance = estimateNoseDepth(prediction.scaledMesh, irisScaleFactor);
 
           if (noseDepthEstimate.values.length < 50) {
-            let nd = xyDistance / Math.sin(degToRadians(angleLR));
+            let nd = xyDistance / Math.sin(THREE.MathUtils.degToRad(angleLR));
             noseDepthEstimate.values.push(nd);
             noseDepthEstimate.angles.push(angleLR);
             noseDepthEstimate.xydist.push(xyDistance);
