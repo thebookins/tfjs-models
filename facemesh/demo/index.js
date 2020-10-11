@@ -51,6 +51,10 @@ const LMRK = {
   tragion_R: 234
 };
 
+// Face dimension ranges
+const noseDepthRange = {min: 10, max: 40}
+const noseWidthRange = {min: 20, max: 50}
+
 var calculateMean = true;
 
 var noseDepthEstimate = {
@@ -193,13 +197,25 @@ function headCsysCanonical() {
   return headCsysFromPoints(ptL, ptR, piL, piR);  
 }
 
-function plotLandmark(lmrk, radius=3, colour=BLUE, lineWidth=1) {
+function plotLandmark(lmrk, colour=BLUE, radius=3, lineWidth=1) {
   ctx.fillStyle = colour;
   ctx.strokeStyle = colour;
   ctx.lineWidth = lineWidth;
   ctx.beginPath();
   ctx.arc(lmrk.x, lmrk.y, radius, 0, 2 * Math.PI);
   ctx.stroke();
+}
+
+function createPlane(normal, pointOn) {
+  let d = normal.dot(pointOn);
+  return new THREE.Plane(normal, d);
+}
+
+function createPlaneAtOrigin(mesh, normal) {
+  let ptL = new THREE.Vector3().fromArray(mesh[LMRK.tragion_L]);
+  let ptR = new THREE.Vector3().fromArray(mesh[LMRK.tragion_R]);
+  let p = ptL.clone().lerp(ptR, 0.5);
+  return createPlane(normal, p);
 }
 
 function headPose(mesh) {
@@ -220,9 +236,9 @@ function headPose(mesh) {
   let RM = new THREE.Matrix4().makeBasis(r1, r2, r3); 
   // Head planes - Used for intersections
   let headPlanes = {
-    'frontal'   : new THREE.Plane(m3, 0.0),
-    'coronal'   : new THREE.Plane(m1, 0.0), 
-    'transverse': new THREE.Plane(m2, 0.0) 
+    'frontal'   : createPlaneAtOrigin(mesh, m3),
+    'median'    : createPlaneAtOrigin(mesh, m1),
+    'transverse': createPlaneAtOrigin(mesh, m2)
   };
   // Euler angles
   let eulerAnglesRad = new THREE.Euler().setFromRotationMatrix (RM, 'XYZ').toArray();
@@ -238,60 +254,87 @@ function headPose(mesh) {
   // Update html
   updateHeadPoseValues(eulerAngles);
   // Estimate nose width
-  //calculateNoseWidth(mesh, headPlanes);
+  calculateNoseWidth(mesh, headPlanes);
   // Estimate nose depth
   calculateNoseDepth(mesh, headPlanes);  
   // Return
   return eulerAngles;
 }
 
-function calculateNoseWidth(mesh, headPlanes) {
-  // Ray - nose_L
+function calculateNoseWidth(mesh, headPlanes, tol=2.0) {
+  let plane = headPlanes.frontal;
+  let ray_origin_z  = 1e4;
+  let ray_direction = new THREE.Vector3(0,0,-1);
+  // Get points
   let pnL = new THREE.Vector3().fromArray(mesh[LMRK.nose_L]);
-  let nL_origin = new THREE.Vector3(pnL.x, pnL.y, 0);
-  let nL_dir    = new THREE.Vector3(0,0,1);
-  let nL_ray    = new THREE.Ray(nL_origin, nL_dir);
-  // Ray - nose_R
   let pnR = new THREE.Vector3().fromArray(mesh[LMRK.nose_R]);
-  let nR_origin = new THREE.Vector3(pnR.x, pnR.y, 0);
-  let nR_dir    = new THREE.Vector3(0,0,1);
-  let nR_ray    = new THREE.Ray(nR_origin, nR_dir);  
+  // Ray - nose_L
+  let nL_origin = new THREE.Vector3(pnL.x, pnL.y, ray_origin_z);
+  let nL_ray    = new THREE.Ray(nL_origin, ray_direction);
+  // Ray - nose_R
+  let nR_origin = new THREE.Vector3(pnR.x, pnR.y, ray_origin_z);
+  let nR_ray    = new THREE.Ray(nR_origin, ray_direction);
   // Get intersection points
-  // nose_L
-  let nL_intersect = new THREE.Vector3();
-  nL_ray.intersectPlane(headPlanes.frontal, nL_intersect);
-  // nose_R
-  let nR_intersect = new THREE.Vector3();
-  nR_ray.intersectPlane(headPlanes.frontal, nR_intersect); 
-  // Get 3D distance between intersection points 
-  let noseWidth = nL_intersect.distanceTo(nR_intersect);
-  console.log(noseWidth);
+  let noseWidth = null;
+  let is_perpendicular = THREE.MathUtils.radToDeg(Math.abs(plane.normal.dot(ray_direction))) < tol;
+  if (!is_perpendicular) {
+    if ((nL_ray.intersectsPlane(plane)) &&
+        (nR_ray.intersectsPlane(plane))) {
+      // nose_L
+      let nL_intersect = new THREE.Vector3();
+      nL_ray.intersectPlane(plane, nL_intersect);
+      // nose_R
+      let nR_intersect = new THREE.Vector3();
+      nR_ray.intersectPlane(plane, nR_intersect); 
+      // Get 3D distance between intersection points 
+      noseWidth = nL_intersect.distanceTo(nR_intersect);
+      // Check estimated value is within physical range
+      //if (noseWidth < noseWidthRange.min) { noseWidth = noseWidthRange.min; }
+      //if (noseWidth > noseWidthRange.max) { noseWidth = noseWidthRange.max; }
+      // Print to console
+      console.log("Nose width = " + noseWidth.toFixed(1));
+    }
+  }
+  return noseWidth;
 }
 
-function calculateNoseDepth(mesh, headPlanes) {
+function calculateNoseDepth(mesh, headPlanes, tol=2.0) {
+  // NOTE: Use either the median or transverse planes for noseDepth
+  let plane = headPlanes.median;
+  let ray_direction = new THREE.Vector3(0,0,-1);
   // Get points
   let pnL = new THREE.Vector3().fromArray(mesh[LMRK.nose_L]);
   let pnR = new THREE.Vector3().fromArray(mesh[LMRK.nose_R]);
   let pnT = new THREE.Vector3().fromArray(mesh[LMRK.nosetip]);
   let pnLRavg = pnL.clone().lerp(pnR, 0.5);
   // Ray - nose tip
-  let nT_origin = new THREE.Vector3(pnT.x, pnT.y, 0);
-  let nT_dir    = new THREE.Vector3(0,0,1);
-  let nT_ray    = new THREE.Ray(nT_origin, nT_dir);
+  let nT_origin = new THREE.Vector3(pnT.x, pnT.y, 1e6);
+  let nT_ray    = new THREE.Ray(nT_origin, ray_direction);
   // Ray - nose_LRavg
-  let nLRavg_origin = new THREE.Vector3(pnLRavg.x, pnLRavg.y, 0);
-  let nLRavg_dir    = new THREE.Vector3(0,0,1);
-  let nLRavg_ray    = new THREE.Ray(nLRavg_origin, nLRavg_dir);  
+  let nLRavg_origin = new THREE.Vector3(pnLRavg.x, pnLRavg.y, 1e6);
+  let nLRavg_ray    = new THREE.Ray(nLRavg_origin, ray_direction);  
   // Get intersection points
-  // nose tip
-  let nT_intersect = new THREE.Vector3();
-  nT_ray.intersectPlane(headPlanes.transverse, nT_intersect);
-  // nose_LRavg
-  let nLRavg_intersect = new THREE.Vector3();
-  nLRavg_ray.intersectPlane(headPlanes.transverse, nLRavg_intersect); 
-  // Get 3D distance between intersection points 
-  let noseDepth = nT_intersect.distanceTo(nLRavg_intersect);
-  console.log(noseDepth);
+  let noseDepth = null;
+  let is_perpendicular = THREE.MathUtils.radToDeg(Math.abs(plane.normal.dot(ray_direction))) < tol;
+  if (!is_perpendicular) {
+    if ((nT_ray.intersectsPlane(plane)) &&
+        (nLRavg_ray.intersectsPlane(plane))) {
+      // nose tip
+      let nT_intersect = new THREE.Vector3();
+      nT_ray.intersectPlane(plane, nT_intersect);
+      // nose_LRavg
+      let nLRavg_intersect = new THREE.Vector3();
+      nLRavg_ray.intersectPlane(plane, nLRavg_intersect); 
+      // Get 3D distance between intersection points 
+      noseDepth = nT_intersect.distanceTo(nLRavg_intersect);
+      // Check estimated value is within physical range
+      //if (noseDepth < noseDepthRange.min) { noseDepth = noseDepthRange.min; }
+      //if (noseDepth > noseDepthRange.max) { noseDepth = noseDepthRange.max; }
+      // Print to console
+      console.log("Nose depth = " + noseDepth.toFixed(1));
+    }
+  }
+  return noseDepth;
 }
 
 function updateHeadPoseValues(eulerAngles) {
@@ -311,8 +354,8 @@ function updateHeadPoseValues(eulerAngles) {
   // Head pose string
   let headPosition = "Head position: Turned ";
   headPosition += angle_leftright.toFixed(1) + " deg to the " + facing_leftright;
-  headPosition += " and " + angle_updown.toFixed(1) + " deg " + facing_updown;
-  headPosition += " and " + angle_rotate.toFixed(1) + " deg rotated to the " + facing_rotate;
+  headPosition += ", " + angle_updown.toFixed(1) + " deg " + facing_updown;
+  headPosition += ", and rotated " + angle_rotate.toFixed(1) + " deg to the " + facing_rotate;
   document.getElementById('head-pose').innerHTML = headPosition;
 }
 
@@ -329,8 +372,51 @@ function estimateNoseDepth(mesh, irisScaleFactor) {
   return xy;
 }
 
+function displayLandmarks(prediction) {
+
+  // Function to display landmarks on the video frame
+  
+  // Get scaled mesh (x,y coords correspond to image pixel coords)
+  const scaledMesh = prediction.scaledMesh;
+  
+  // Get landmark points - Only get x,y coordinates. Ignore z.
+  let p_nose_L = new THREE.Vector3(scaledMesh[LMRK.nose_L].slice(0,2));
+  let p_nose_R = new THREE.Vector3(scaledMesh[LMRK.nose_R].slice(0,2));
+  let p_nosetip = new THREE.Vector3(scaledMesh[LMRK.nosetip].slice(0,2));
+  let p_sellion = new THREE.Vector3(scaledMesh[LMRK.sellion].slice(0,2));
+  let p_supramenton = new THREE.Vector3(scaledMesh[LMRK.supramenton].slice(0,2));
+  let p_tragion_L = new THREE.Vector3(scaledMesh[LMRK.tragion_L].slice(0,2));
+  let p_tragion_R = new THREE.Vector3(scaledMesh[LMRK.tragion_R].slice(0,2));
+
+  // Plot landmarks
+  plotLandmark(p_nose_L, WHITE);
+  plotLandmark(p_nose_R, WHITE);
+  plotLandmark(p_nosetip, WHITE); 
+  plotLandmark(p_sellion, BLUE);
+  plotLandmark(p_supramenton, BLUE);
+  plotLandmark(p_tragion_L, RED);
+  plotLandmark(p_tragion_R, RED); 
+
+  // Get face measurements
+  // Face height
+  const faceHeightScaled = p_sellion.distanceTo(p_supramenton);
+  // Face width (not needed for mask sizing, but maybe useful for conduit sizing)
+  const faceWidthScaled = p_tragion_L.distanceTo(p_tragion_R);  
+  // Nose width
+  const noseWidthScaled = p_nose_L.distanceTo(p_nose_R);
+  // Nose depth
+  const noseDepthScaled = 0.5 * (p_nosetip.distanceTo(p_nose_L) + p_nosetip.distanceTo(p_nose_R));
+
+  // Get iris
+  let has_iris = scaledMesh.length > NUM_KEYPOINTS;
+  if (has_iris) {
+
+  }
+}
+
 function getLandmarkMeasurements(prediction) {
 
+  /*
   //console.log(prediction);
 
   const mesh = prediction.mesh;
@@ -352,12 +438,12 @@ function getLandmarkMeasurements(prediction) {
   x = scaledMesh[LMRK.sellion][0];
   y = scaledMesh[LMRK.sellion][1];
   ctx.beginPath();
-  ctx.arc(x, y, 3 /* radius */, 0, 2 * Math.PI);
+  ctx.arc(x, y, 3, 0, 2 * Math.PI);
   ctx.fill();
   x = scaledMesh[LMRK.supramenton][0];
   y = scaledMesh[LMRK.supramenton][1];
   ctx.beginPath();
-  ctx.arc(x, y, 3 /* radius */, 0, 2 * Math.PI);
+  ctx.arc(x, y, 3, 0, 2 * Math.PI);
   ctx.fill();
 
   // Face width
@@ -375,12 +461,12 @@ function getLandmarkMeasurements(prediction) {
   x = scaledMesh[LMRK.tragion_L][0];
   y = scaledMesh[LMRK.tragion_L][1];
   ctx.beginPath();
-  ctx.arc(x, y, 3 /* radius */, 0, 2 * Math.PI);
+  ctx.arc(x, y, 3, 0, 2 * Math.PI);
   ctx.fill();
   x = scaledMesh[LMRK.tragion_R][0];
   y = scaledMesh[LMRK.tragion_R][1];
   ctx.beginPath();
-  ctx.arc(x, y, 3 /* radius */, 0, 2 * Math.PI);
+  ctx.arc(x, y, 3, 0, 2 * Math.PI);
   ctx.fill();
 
   // Nose width
@@ -398,12 +484,12 @@ function getLandmarkMeasurements(prediction) {
   x = scaledMesh[LMRK.nose_L][0];
   y = scaledMesh[LMRK.nose_L][1];
   ctx.beginPath();
-  ctx.arc(x, y, 3 /* radius */, 0, 2 * Math.PI);
+  ctx.arc(x, y, 3, 0, 2 * Math.PI);
   ctx.fill();
   x = scaledMesh[LMRK.nose_R][0];
   y = scaledMesh[LMRK.nose_R][1];
   ctx.beginPath();
-  ctx.arc(x, y, 3 /* radius */, 0, 2 * Math.PI);
+  ctx.arc(x, y, 3, 0, 2 * Math.PI);
   ctx.fill();
 
   // Nose depth
@@ -429,8 +515,9 @@ function getLandmarkMeasurements(prediction) {
   x = scaledMesh[LMRK.nosetip][0];
   y = scaledMesh[LMRK.nosetip][1];
   ctx.beginPath();
-  ctx.arc(x, y, 3 /* radius */, 0, 2 * Math.PI);
+  ctx.arc(x, y, 3, 0, 2 * Math.PI);
   ctx.fill();
+  */
 
   // Iris model
   var irisScaleFactor = null;
@@ -496,149 +583,164 @@ function getLandmarkMeasurements(prediction) {
 
 }
 
-async function renderPrediction() {
-  stats.begin();
+async function run() {
 
+  stats.begin();
   const predictions = await model.estimateFaces(
     video, false /* returnTensors */, false /* flipHorizontal */,
     state.predictIrises);
   ctx.drawImage(
-    video, 0, 0, videoWidth, videoHeight, 0, 0, canvas.width, canvas.height);
+    video, 0, 0, videoWidth, videoHeight, 0, 0, canvas.width, canvas.height);  
 
   if (predictions.length > 0) {
-
+    
+    // Display mesh and irises
     predictions.forEach(prediction => {
-      const keypoints = prediction.scaledMesh;
-
-      if (state.triangulateMesh) {
-        ctx.strokeStyle = GREEN;
-        ctx.lineWidth = 0.5;
-
-        for (let i = 0; i < TRIANGULATION.length / 3; i++) {
-          const points = [
-            TRIANGULATION[i * 3], TRIANGULATION[i * 3 + 1],
-            TRIANGULATION[i * 3 + 2]
-          ].map(index => keypoints[index]);
-
-          drawPath(ctx, points, true);
-        }
-      } else {
-        ctx.fillStyle = GREEN;
-
-        for (let i = 0; i < NUM_KEYPOINTS; i++) {
-          const x = keypoints[i][0];
-          const y = keypoints[i][1];
-
-          ctx.beginPath();
-          ctx.arc(x, y, 1 /* radius */, 0, 2 * Math.PI);
-          ctx.fill();
-        }
-      }
-
-      if (keypoints.length > NUM_KEYPOINTS) {
-        ctx.strokeStyle = RED;
-        ctx.lineWidth = 1;
-
-        const leftCenter = keypoints[NUM_KEYPOINTS];
-        const leftDiameterY = distance(
-          keypoints[NUM_KEYPOINTS + 4],
-          keypoints[NUM_KEYPOINTS + 2]);
-        const leftDiameterX = distance(
-          keypoints[NUM_KEYPOINTS + 3],
-          keypoints[NUM_KEYPOINTS + 1]);
-
-        const leftDiameter = 0.5 * (leftDiameterX + leftDiameterY);
-        ctx.beginPath();
-        ctx.ellipse(leftCenter[0], leftCenter[1], leftDiameter / 2.0, leftDiameter / 2.0, 0, 0, 2 * Math.PI);
-        ctx.stroke();
-
-        if (keypoints.length > NUM_KEYPOINTS + NUM_IRIS_KEYPOINTS) {
-          const rightCenter = keypoints[NUM_KEYPOINTS + NUM_IRIS_KEYPOINTS];
-          const rightDiameterY = distance(
-            keypoints[NUM_KEYPOINTS + NUM_IRIS_KEYPOINTS + 2],
-            keypoints[NUM_KEYPOINTS + NUM_IRIS_KEYPOINTS + 4]);
-          const rightDiameterX = distance(
-            keypoints[NUM_KEYPOINTS + NUM_IRIS_KEYPOINTS + 3],
-            keypoints[NUM_KEYPOINTS + NUM_IRIS_KEYPOINTS + 1]);
-
-          const rightDiameter = 0.5 * (rightDiameterX + rightDiameterY);
-          ctx.beginPath();
-          ctx.ellipse(rightCenter[0], rightCenter[1], rightDiameter / 2.0, rightDiameter / 2.0, 0, 0, 2 * Math.PI);
-          ctx.stroke();
-        }
-      }
-
-      // Head pose
-      let hp = headPose(prediction.scaledMesh);
-      let poseLR = hp[0];
-      let poseUD = hp[1];
-
-      // Plots landmarks and update landmark measurements
-      let irisScaleFactor = getLandmarkMeasurements(prediction);
-      if (irisScaleFactor != null) {
-
-        // Estimate nose depth
-        let angleLR = Math.abs(poseLR);
-        let angleUD = Math.abs(poseUD);
-        if ((angleLR >= 10.0) && (angleLR <= 30.0) && (angleUD <= 10.0)) {
-
-          let xyDistance = estimateNoseDepth(prediction.scaledMesh, irisScaleFactor);
-
-          if (noseDepthEstimate.values.length < 50) {
-            let nd = xyDistance / Math.sin(THREE.MathUtils.degToRad(angleLR));
-            noseDepthEstimate.values.push(nd);
-            noseDepthEstimate.angles.push(angleLR);
-            noseDepthEstimate.xydist.push(xyDistance);
-          } else if ((noseDepthEstimate.values.length == 50) && (calculateMean)) {
-            // NOTE: Probably better to replace this with a linear regression of angles vs xydist, then 
-            //       extrapolate this curve to a value of angle = 90 degrees. 
-            // Also need a way of accounting for length due to angleUD. This will particularly influence 
-            // the values of xyDistance at low angleLR values
-            // BETTER YET: Also include angleUD in the regression, and then find the values of angleLR and
-            //             angleUD such that length is 0 (call this angleUD = alpha). Then extrapolate to 
-            //             the nose depth at angleLR = 90 deg and angleUD = alpha deg ie. no contribution 
-            //             from angleUD
-            noseDepthEstimate.estimate = tf.tensor1d(noseDepthEstimate.values, 'float32').mean(0).arraySync();
-            console.log(noseDepthEstimate);
-            calculateMean = false;
-          }
-        }
-      }
-      
+      renderPrediction(prediction);
+      displayLandmarks(prediction);
+      headPose(prediction.scaledMesh);
     });
 
-    if (renderPointcloud && state.renderPointcloud && scatterGL != null) {
-      const pointsData = predictions.map(prediction => {
-        let scaledMesh = prediction.scaledMesh;
-        return scaledMesh.map(point => ([-point[0], -point[1], -point[2]]));
-      });
+    scatterPlot(predictions);
+  }
+  stats.end();
+  rafID = requestAnimationFrame(run);
+};
 
-      let flattenedPointsData = [];
-      for (let i = 0; i < pointsData.length; i++) {
-        flattenedPointsData = flattenedPointsData.concat(pointsData[i]);
-      }
-      const dataset = new ScatterGL.Dataset(flattenedPointsData);
+function renderPrediction(prediction) {
 
-      if (!scatterGLHasInitialized) {
-        scatterGL.setPointColorer((i) => {
-          if (i >= NUM_KEYPOINTS) {
-            return RED;
-          }
-          return BLUE;
-        });
-        scatterGL.render(dataset);
-      } else {
-        scatterGL.updateDataset(dataset);
-      }
-      scatterGLHasInitialized = true;
+  const keypoints = prediction.scaledMesh;
+
+  if (state.triangulateMesh) {
+    ctx.strokeStyle = GREEN;
+    ctx.lineWidth = 0.5;
+
+    for (let i = 0; i < TRIANGULATION.length / 3; i++) {
+      const points = [
+        TRIANGULATION[i * 3], TRIANGULATION[i * 3 + 1],
+        TRIANGULATION[i * 3 + 2]
+      ].map(index => keypoints[index]);
+
+      drawPath(ctx, points, true);
+    }
+  } else {
+    ctx.fillStyle = GREEN;
+
+    for (let i = 0; i < NUM_KEYPOINTS; i++) {
+      const x = keypoints[i][0];
+      const y = keypoints[i][1];
+
+      ctx.beginPath();
+      ctx.arc(x, y, 1 /* radius */, 0, 2 * Math.PI);
+      ctx.fill();
     }
   }
 
-  stats.end();
-  rafID = requestAnimationFrame(renderPrediction);
-};
+  // Show irises
+  if (keypoints.length > NUM_KEYPOINTS) {
+    ctx.strokeStyle = RED;
+    ctx.lineWidth = 1;
+
+    const leftCenter = keypoints[NUM_KEYPOINTS];
+    const leftDiameterY = distance(
+      keypoints[NUM_KEYPOINTS + 4],
+      keypoints[NUM_KEYPOINTS + 2]);
+    const leftDiameterX = distance(
+      keypoints[NUM_KEYPOINTS + 3],
+      keypoints[NUM_KEYPOINTS + 1]);
+
+    const leftDiameter = 0.5 * (leftDiameterX + leftDiameterY);
+    ctx.beginPath();
+    ctx.ellipse(leftCenter[0], leftCenter[1], leftDiameter / 2.0, leftDiameter / 2.0, 0, 0, 2 * Math.PI);
+    ctx.stroke();
+
+    if (keypoints.length > NUM_KEYPOINTS + NUM_IRIS_KEYPOINTS) {
+      const rightCenter = keypoints[NUM_KEYPOINTS + NUM_IRIS_KEYPOINTS];
+      const rightDiameterY = distance(
+        keypoints[NUM_KEYPOINTS + NUM_IRIS_KEYPOINTS + 2],
+        keypoints[NUM_KEYPOINTS + NUM_IRIS_KEYPOINTS + 4]);
+      const rightDiameterX = distance(
+        keypoints[NUM_KEYPOINTS + NUM_IRIS_KEYPOINTS + 3],
+        keypoints[NUM_KEYPOINTS + NUM_IRIS_KEYPOINTS + 1]);
+
+      const rightDiameter = 0.5 * (rightDiameterX + rightDiameterY);
+      ctx.beginPath();
+      ctx.ellipse(rightCenter[0], rightCenter[1], rightDiameter / 2.0, rightDiameter / 2.0, 0, 0, 2 * Math.PI);
+      ctx.stroke();
+    }
+  }
+
+  // Head pose
+  //headPose(prediction.scaledMesh);
+  //let hp = headPose(prediction.scaledMesh);
+  //let poseLR = hp[0];
+  //let poseUD = hp[1];
+
+  /*
+  // Plots landmarks and update landmark measurements
+  let irisScaleFactor = getLandmarkMeasurements(prediction);
+  if (irisScaleFactor != null) {
+
+    // Estimate nose depth
+    let angleLR = Math.abs(poseLR);
+    let angleUD = Math.abs(poseUD);
+    if ((angleLR >= 10.0) && (angleLR <= 30.0) && (angleUD <= 10.0)) {
+
+      let xyDistance = estimateNoseDepth(prediction.scaledMesh, irisScaleFactor);
+
+      if (noseDepthEstimate.values.length < 50) {
+        let nd = xyDistance / Math.sin(THREE.MathUtils.degToRad(angleLR));
+        noseDepthEstimate.values.push(nd);
+        noseDepthEstimate.angles.push(angleLR);
+        noseDepthEstimate.xydist.push(xyDistance);
+      } else if ((noseDepthEstimate.values.length == 50) && (calculateMean)) {
+        // NOTE: Probably better to replace this with a linear regression of angles vs xydist, then 
+        //       extrapolate this curve to a value of angle = 90 degrees. 
+        // Also need a way of accounting for length due to angleUD. This will particularly influence 
+        // the values of xyDistance at low angleLR values
+        // BETTER YET: Also include angleUD in the regression, and then find the values of angleLR and
+        //             angleUD such that length is 0 (call this angleUD = alpha). Then extrapolate to 
+        //             the nose depth at angleLR = 90 deg and angleUD = alpha deg ie. no contribution 
+        //             from angleUD
+        noseDepthEstimate.estimate = tf.tensor1d(noseDepthEstimate.values, 'float32').mean(0).arraySync();
+        console.log(noseDepthEstimate);
+        calculateMean = false;
+      }
+    }
+  }*/
+}
+
+function scatterPlot(predictions) {
+
+  if (renderPointcloud && state.renderPointcloud && scatterGL != null) {
+    const pointsData = predictions.map(prediction => {
+      let scaledMesh = prediction.scaledMesh;
+      return scaledMesh.map(point => ([-point[0], -point[1], -point[2]]));
+    });
+
+    let flattenedPointsData = [];
+    for (let i = 0; i < pointsData.length; i++) {
+      flattenedPointsData = flattenedPointsData.concat(pointsData[i]);
+    }
+    const dataset = new ScatterGL.Dataset(flattenedPointsData);
+
+    if (!scatterGLHasInitialized) {
+      scatterGL.setPointColorer((i) => {
+        if (i >= NUM_KEYPOINTS) {
+          return RED;
+        }
+        return BLUE;
+      });
+      scatterGL.render(dataset);
+    } else {
+      scatterGL.updateDataset(dataset);
+    }
+    scatterGLHasInitialized = true;
+  }
+}
 
 async function main() {
+
   await tf.setBackend(state.backend);
   setupDatGui();
 
@@ -666,7 +768,7 @@ async function main() {
   ctx.lineWidth = 0.5;
 
   model = await facemesh.load({ maxFaces: state.maxFaces });
-  renderPrediction();
+  run();
 
   if (renderPointcloud) {
     document.querySelector('#scatter-gl-container').style =
