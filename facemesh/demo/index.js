@@ -22,11 +22,11 @@ import '@tensorflow/tfjs-backend-webgl';
 import '@tensorflow/tfjs-backend-cpu';
 import * as tfjsWasm from '@tensorflow/tfjs-backend-wasm';
 import * as THREE from 'three';
-//import * as THREE from 'https://unpkg.com/three@0.106.2/build/three.min.js';
 
 import { TRIANGULATION } from './triangulation';
 import { tensor2d } from '@tensorflow/tfjs-core';
 import { TLSSocket } from 'tls';
+import { MESH_ANNOTATIONS } from '../dist/keypoints';
 
 tfjsWasm.setWasmPaths(
   `https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-wasm@${tfjsWasm.version_wasm}/dist/`);
@@ -37,6 +37,10 @@ const GREEN = '#32EEDB';
 const RED = "#FF2C35";
 const BLUE = "#0000FF";
 const WHITE = "#FFFFFF";
+
+// Iris scaling
+const scaleFactor = 1.05;
+const IRIS_DIAMETER_AVGERAGE = 11.7 * scaleFactor;
 
 // Landmark list
 const LMRK = {
@@ -55,24 +59,10 @@ const LMRK = {
 const noseDepthRange = {min: 10, max: 40}
 const noseWidthRange = {min: 20, max: 50}
 
-var calculateMean = true;
-
-var noseDepthEstimate = {
-  angles: [],
-  xydist: [],
-  values: [],
-  estimate: null
-};
-
 function isMobile() {
   const isAndroid = /Android/i.test(navigator.userAgent);
   const isiOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
   return isAndroid || isiOS;
-}
-
-function distance(a, b) {
-  // Distance between to 2D points, a and b
-  return Math.sqrt(Math.pow(a[0] - b[0], 2) + Math.pow(a[1] - b[1], 2));
 }
 
 function drawPath(ctx, points, closePath) {
@@ -116,7 +106,7 @@ function setupDatGui() {
     .onChange(async backend => {
       window.cancelAnimationFrame(rafID);
       await tf.setBackend(backend);
-      requestAnimationFrame(renderPrediction);
+      requestAnimationFrame(run);
     });
 
   gui.add(state, 'maxFaces', 1, 20, 1).onChange(async val => {
@@ -156,6 +146,29 @@ async function setupCamera() {
   });
 }
 
+function average(data) {
+  // Average of all values in the data array
+  return data.reduce((a,b) => (a+b)) / data.length;
+}
+
+function createPlane(normal, pointOn) {
+  let d = normal.dot(pointOn);
+  return new THREE.Plane(normal, d);
+}
+
+function createPlaneAtOrigin(mesh, normal) {
+  let ptL = new THREE.Vector3().fromArray(mesh[LMRK.tragion_L]);
+  let ptR = new THREE.Vector3().fromArray(mesh[LMRK.tragion_R]);
+  let p = ptL.clone().lerp(ptR, 0.5);
+  return createPlane(normal, p);
+}
+
+function distanceXY(a, b) {
+  // Computes the distance in the X-Y plane of points a and b
+  // a, b: Either Vector2 or Vector3
+  return Math.sqrt(Math.pow((a.x-b.x), 2) + Math.pow((a.y-b.y), 2));
+}
+
 function headCsysFromPoints(ptL, ptR, piL, piR) {
   // p0 - origin
   let p0 = ptL.clone().lerp(ptR, 0.5);
@@ -180,9 +193,6 @@ function headCsysMoving(mesh) {
   let ptR = new THREE.Vector3().fromArray(mesh[LMRK.tragion_R]);
   let piL = new THREE.Vector3().fromArray(mesh[LMRK.infraorb_L]);
   let piR = new THREE.Vector3().fromArray(mesh[LMRK.infraorb_R]);
-  // Plot the landmarks
-  plotLandmark(piL);
-  plotLandmark(piR);
   // Basis matrix
   return headCsysFromPoints(ptL, ptR, piL, piR);
 }
@@ -197,25 +207,21 @@ function headCsysCanonical() {
   return headCsysFromPoints(ptL, ptR, piL, piR);  
 }
 
-function plotLandmark(lmrk, colour=BLUE, radius=3, lineWidth=1) {
-  ctx.fillStyle = colour;
+function plotIris(center, diameter, colour=RED, lineWidth=1) {
+  let radius = diameter / 2;
   ctx.strokeStyle = colour;
   ctx.lineWidth = lineWidth;
   ctx.beginPath();
-  ctx.arc(lmrk.x, lmrk.y, radius, 0, 2 * Math.PI);
+  ctx.ellipse(center.x, center.y, radius, radius, 0, 0, 2 * Math.PI);
   ctx.stroke();
 }
 
-function createPlane(normal, pointOn) {
-  let d = normal.dot(pointOn);
-  return new THREE.Plane(normal, d);
-}
-
-function createPlaneAtOrigin(mesh, normal) {
-  let ptL = new THREE.Vector3().fromArray(mesh[LMRK.tragion_L]);
-  let ptR = new THREE.Vector3().fromArray(mesh[LMRK.tragion_R]);
-  let p = ptL.clone().lerp(ptR, 0.5);
-  return createPlane(normal, p);
+function plotLandmark(lmrk, colour=BLUE, radius=3) {
+  ctx.fillStyle = colour;
+  ctx.strokeStyle = colour;
+  ctx.beginPath();
+  ctx.arc(lmrk.x, lmrk.y, radius, 0, 2 * Math.PI);
+  ctx.fill();
 }
 
 function headPose(mesh) {
@@ -256,7 +262,7 @@ function headPose(mesh) {
   // Estimate nose width
   calculateNoseWidth(mesh, headPlanes);
   // Estimate nose depth
-  calculateNoseDepth(mesh, headPlanes);  
+  calculateNoseDepth(mesh, headPlanes);
   // Return
   return eulerAngles;
 }
@@ -288,9 +294,6 @@ function calculateNoseWidth(mesh, headPlanes, tol=2.0) {
       nR_ray.intersectPlane(plane, nR_intersect); 
       // Get 3D distance between intersection points 
       noseWidth = nL_intersect.distanceTo(nR_intersect);
-      // Check estimated value is within physical range
-      //if (noseWidth < noseWidthRange.min) { noseWidth = noseWidthRange.min; }
-      //if (noseWidth > noseWidthRange.max) { noseWidth = noseWidthRange.max; }
       // Print to console
       console.log("Nose width = " + noseWidth.toFixed(1));
     }
@@ -327,9 +330,6 @@ function calculateNoseDepth(mesh, headPlanes, tol=2.0) {
       nLRavg_ray.intersectPlane(plane, nLRavg_intersect); 
       // Get 3D distance between intersection points 
       noseDepth = nT_intersect.distanceTo(nLRavg_intersect);
-      // Check estimated value is within physical range
-      //if (noseDepth < noseDepthRange.min) { noseDepth = noseDepthRange.min; }
-      //if (noseDepth > noseDepthRange.max) { noseDepth = noseDepthRange.max; }
       // Print to console
       console.log("Nose depth = " + noseDepth.toFixed(1));
     }
@@ -359,259 +359,123 @@ function updateHeadPoseValues(eulerAngles) {
   document.getElementById('head-pose').innerHTML = headPosition;
 }
 
-function estimateNoseDepth(mesh, irisScaleFactor) {
-  // Landmark coordinates
-  let p_nt = mesh[LMRK.nosetip];
-  let p_nl = tf.tensor1d(mesh[LMRK.nose_L], 'float32');
-  let p_nr = tf.tensor1d(mesh[LMRK.nose_R], 'float32');
-  let p_nm = p_nl.stack(p_nr).mean(0).arraySync();
-  // Get xy distance between points. Apply irisScaleFactor to remove scaling effect
-  // when user moves closer / further away from the camera
-  let xy = distance(p_nt, p_nm) * irisScaleFactor;
-  //console.log(xy);
-  return xy;
-}
-
-function displayLandmarks(prediction) {
+function getHeadMeasures(scaledMesh) {
 
   // Function to display landmarks on the video frame
   
-  // Get scaled mesh (x,y coords correspond to image pixel coords)
-  const scaledMesh = prediction.scaledMesh;
-  
-  // Get landmark points - Only get x,y coordinates. Ignore z.
-  let p_nose_L = new THREE.Vector3(scaledMesh[LMRK.nose_L].slice(0,2));
-  let p_nose_R = new THREE.Vector3(scaledMesh[LMRK.nose_R].slice(0,2));
-  let p_nosetip = new THREE.Vector3(scaledMesh[LMRK.nosetip].slice(0,2));
-  let p_sellion = new THREE.Vector3(scaledMesh[LMRK.sellion].slice(0,2));
-  let p_supramenton = new THREE.Vector3(scaledMesh[LMRK.supramenton].slice(0,2));
-  let p_tragion_L = new THREE.Vector3(scaledMesh[LMRK.tragion_L].slice(0,2));
-  let p_tragion_R = new THREE.Vector3(scaledMesh[LMRK.tragion_R].slice(0,2));
+  // Get landmark points
+  let p_infraorb_L = new THREE.Vector3().fromArray(scaledMesh[LMRK.infraorb_L]);
+  let p_infraorb_R = new THREE.Vector3().fromArray(scaledMesh[LMRK.infraorb_R]);  
+  let p_nose_L = new THREE.Vector3().fromArray(scaledMesh[LMRK.nose_L]);
+  let p_nose_R = new THREE.Vector3().fromArray(scaledMesh[LMRK.nose_R]);
+  let p_nosetip = new THREE.Vector3().fromArray(scaledMesh[LMRK.nosetip]);
+  let p_sellion = new THREE.Vector3().fromArray(scaledMesh[LMRK.sellion]);
+  let p_supramenton = new THREE.Vector3().fromArray(scaledMesh[LMRK.supramenton]);
+  let p_tragion_L = new THREE.Vector3().fromArray(scaledMesh[LMRK.tragion_L]);
+  let p_tragion_R = new THREE.Vector3().fromArray(scaledMesh[LMRK.tragion_R]);
 
   // Plot landmarks
+  plotLandmark(p_infraorb_L, BLUE);
+  plotLandmark(p_infraorb_R, BLUE);
   plotLandmark(p_nose_L, WHITE);
   plotLandmark(p_nose_R, WHITE);
-  plotLandmark(p_nosetip, WHITE); 
+  plotLandmark(p_nosetip, WHITE);
   plotLandmark(p_sellion, BLUE);
   plotLandmark(p_supramenton, BLUE);
   plotLandmark(p_tragion_L, RED);
-  plotLandmark(p_tragion_R, RED); 
-
+  plotLandmark(p_tragion_R, RED);
+  
   // Get face measurements
   // Face height
-  const faceHeightScaled = p_sellion.distanceTo(p_supramenton);
+  const faceHeight = distanceXY(p_sellion, p_supramenton);
   // Face width (not needed for mask sizing, but maybe useful for conduit sizing)
-  const faceWidthScaled = p_tragion_L.distanceTo(p_tragion_R);  
-  // Nose width
-  const noseWidthScaled = p_nose_L.distanceTo(p_nose_R);
+  const faceWidth = distanceXY(p_tragion_L, p_tragion_R);  
   // Nose depth
-  const noseDepthScaled = 0.5 * (p_nosetip.distanceTo(p_nose_L) + p_nosetip.distanceTo(p_nose_R));
+  const noseDepth = average([distanceXY(p_nosetip, p_nose_L), distanceXY(p_nosetip, p_nose_R)]);
+  // Nose width
+  const noseWidth = distanceXY(p_nose_L, p_nose_R);
+  // Landmarks measurements
+  let headMeasures = {
+    'faceHeight' : faceHeight,
+    'faceWidth'  : faceWidth,
+    'noseDepth'  : noseDepth,
+    'noseWidth'  : noseWidth
+  };
+  return headMeasures
+}
 
-  // Get iris
+function getIrisMeasures(scaledMesh) {
+
+  // Get iris measures
+  let irisDiameters = null;
   let has_iris = scaledMesh.length > NUM_KEYPOINTS;
   if (has_iris) {
-
-  }
-}
-
-function getLandmarkMeasurements(prediction) {
-
-  /*
-  //console.log(prediction);
-
-  const mesh = prediction.mesh;
-  const scaledMesh = prediction.scaledMesh;
-  let x, y;
-
-  // Face height
-  const faceHeight = distance(
-    mesh[LMRK.sellion],
-    mesh[LMRK.supramenton]);
-
-  const faceHeightScaled = distance(
-    scaledMesh[LMRK.sellion],
-    scaledMesh[LMRK.supramenton]);
-
-  ctx.fillStyle = BLUE;
-  ctx.strokeStyle = BLUE;
-  ctx.lineWidth = 1;
-  x = scaledMesh[LMRK.sellion][0];
-  y = scaledMesh[LMRK.sellion][1];
-  ctx.beginPath();
-  ctx.arc(x, y, 3, 0, 2 * Math.PI);
-  ctx.fill();
-  x = scaledMesh[LMRK.supramenton][0];
-  y = scaledMesh[LMRK.supramenton][1];
-  ctx.beginPath();
-  ctx.arc(x, y, 3, 0, 2 * Math.PI);
-  ctx.fill();
-
-  // Face width
-  const faceWidth = distance(
-    mesh[LMRK.tragion_L],
-    mesh[LMRK.tragion_R]);
-
-  const faceWidthScaled = distance(
-    scaledMesh[LMRK.tragion_L],
-    scaledMesh[LMRK.tragion_R]);
-
-  ctx.fillStyle = RED;
-  ctx.strokeStyle = RED;
-  ctx.lineWidth = 1;
-  x = scaledMesh[LMRK.tragion_L][0];
-  y = scaledMesh[LMRK.tragion_L][1];
-  ctx.beginPath();
-  ctx.arc(x, y, 3, 0, 2 * Math.PI);
-  ctx.fill();
-  x = scaledMesh[LMRK.tragion_R][0];
-  y = scaledMesh[LMRK.tragion_R][1];
-  ctx.beginPath();
-  ctx.arc(x, y, 3, 0, 2 * Math.PI);
-  ctx.fill();
-
-  // Nose width
-  const noseWidth = distance(
-    mesh[LMRK.nose_L],
-    mesh[LMRK.nose_R]);
-
-  const noseWidthScaled = distance(
-    scaledMesh[LMRK.nose_L],
-    scaledMesh[LMRK.nose_R]);
-
-  ctx.fillStyle = WHITE;
-  ctx.strokeStyle = WHITE;
-  ctx.lineWidth = 1;
-  x = scaledMesh[LMRK.nose_L][0];
-  y = scaledMesh[LMRK.nose_L][1];
-  ctx.beginPath();
-  ctx.arc(x, y, 3, 0, 2 * Math.PI);
-  ctx.fill();
-  x = scaledMesh[LMRK.nose_R][0];
-  y = scaledMesh[LMRK.nose_R][1];
-  ctx.beginPath();
-  ctx.arc(x, y, 3, 0, 2 * Math.PI);
-  ctx.fill();
-
-  // Nose depth
-  const noseDepthL = distance(
-    mesh[LMRK.nose_L],
-    mesh[LMRK.nosetip]);
-  const noseDepthR = distance(
-    mesh[LMRK.nose_R],
-    mesh[LMRK.nosetip]);
-  const noseDepth = 0.5 * (noseDepthL + noseDepthR);
-
-  const noseDepthScaledL = distance(
-    scaledMesh[LMRK.nose_L],
-    scaledMesh[LMRK.nosetip]);
-  const noseDepthScaledR = distance(
-    scaledMesh[LMRK.nose_R],
-    scaledMesh[LMRK.nosetip]);
-  const noseDepthScaled = 0.5 * (noseDepthScaledL + noseDepthScaledR);
-
-  ctx.fillStyle = WHITE;
-  ctx.strokeStyle = WHITE;
-  ctx.lineWidth = 1;
-  x = scaledMesh[LMRK.nosetip][0];
-  y = scaledMesh[LMRK.nosetip][1];
-  ctx.beginPath();
-  ctx.arc(x, y, 3, 0, 2 * Math.PI);
-  ctx.fill();
-  */
-
-  // Iris model
-  var irisScaleFactor = null;
-  if (scaledMesh.length > NUM_KEYPOINTS) {
-
-    ctx.fillStyle = RED;
-    ctx.strokeStyle = RED;
-    let i;
-    for (i = 0; i < 10; i++) {
-      x = scaledMesh[NUM_KEYPOINTS + i][0];
-      y = scaledMesh[NUM_KEYPOINTS + i][1];
-      ctx.beginPath();
-      ctx.arc(x, y, 2 /* radius */, 0, 2 * Math.PI);
-      ctx.fill();
-    }
-
+    // Get coordinates of iris keypoints
+    let leftIris  = MESH_ANNOTATIONS['leftEyeIris'].map(i=> new THREE.Vector3().fromArray(scaledMesh[i]));
+    let rightIris = MESH_ANNOTATIONS['rightEyeIris'].map(i=> new THREE.Vector3().fromArray(scaledMesh[i]));
+    // Plot left and right iris keypoints
+    leftIris.map(lmrk=> plotLandmark(lmrk, RED, 2));
+    rightIris.map(lmrk=> plotLandmark(lmrk, RED, 2));
+    // Get iris diameter
     // Left iris
-    const leftDiameterX = distance(
-      scaledMesh[NUM_KEYPOINTS + 1],
-      scaledMesh[NUM_KEYPOINTS + 3]);
-    const leftDiameterY = distance(
-      scaledMesh[NUM_KEYPOINTS + 2],
-      scaledMesh[NUM_KEYPOINTS + 4]);
-    const leftDiameter = 0.5 * (leftDiameterX + leftDiameterY);
-    document.getElementById('measure-scaled-iris-diameter-L').innerHTML = "Scaled iris diameter L = " + leftDiameter.toFixed(1);
-
+    let leftRadius = [];
+    for (let i=1; i<MESH_ANNOTATIONS['leftEyeIris'].length; i++) { 
+      leftRadius.push(leftIris[i].distanceTo(leftIris[0])); }
+    let leftIrisDiameter = average(leftRadius) * 2;
     // Right iris
-    const rightDiameterX = distance(
-      scaledMesh[NUM_KEYPOINTS + NUM_IRIS_KEYPOINTS + 1],
-      scaledMesh[NUM_KEYPOINTS + NUM_IRIS_KEYPOINTS + 3]);
-    const rightDiameterY = distance(
-      scaledMesh[NUM_KEYPOINTS + NUM_IRIS_KEYPOINTS + 2],
-      scaledMesh[NUM_KEYPOINTS + NUM_IRIS_KEYPOINTS + 4]);
-    const rightDiameter = 0.5 * (rightDiameterX + rightDiameterY);
-    document.getElementById('measure-scaled-iris-diameter-R').innerHTML = "Scaled iris diameter R = " + rightDiameter.toFixed(1);
-
-    // Scale all measurements using the iris diameter
-    // Iris diameter should be 11.7 +- 0.5mm
-    const cf = 1.1;
-    const irisDiameter = 0.5 * (leftDiameter + rightDiameter);
-    var irisScaleFactor = cf * 11.7 / irisDiameter;
-
-    const fh = faceHeightScaled * irisScaleFactor;
-    document.getElementById('measure-face-height').innerHTML = "Sellion-supramenton = " + fh.toFixed(1) + " mm";
-    const fw = faceWidthScaled * irisScaleFactor;
-    document.getElementById('measure-face-width').innerHTML = "Face width = " + fw.toFixed(1) + " mm";
-    const nw = noseWidthScaled * irisScaleFactor;
-    document.getElementById('measure-nose-width').innerHTML = "Nose width = " + nw.toFixed(1) + " mm";
-    const nd = noseDepthScaled * irisScaleFactor;
-    document.getElementById('measure-nose-depth').innerHTML = "Nose depth = " + nd.toFixed(1) + " mm";
-
-  } else {
-
-    document.getElementById('measure-face-height').innerHTML = "Sellion-supramenton = " + faceHeight.toFixed(1) + " mm";
-    document.getElementById('measure-face-width').innerHTML = "Face width = " + faceWidth.toFixed(1) + " mm";
-    document.getElementById('measure-nose-width').innerHTML = "Nose width = " + noseWidth.toFixed(1) + " mm";
-    document.getElementById('measure-nose-depth').innerHTML = "Nose depth = " + noseDepth.toFixed(1) + " mm";
-    document.getElementById('measure-scaled-iris-diameter-L').innerHTML = "";
-    document.getElementById('measure-scaled-iris-diameter-R').innerHTML = "";
+    let rightRadius = [];
+    for (let i=1; i<MESH_ANNOTATIONS['rightEyeIris'].length; i++) { 
+      rightRadius.push(rightIris[i].distanceTo(rightIris[0])); }
+    let rightIrisDiameter = average(rightRadius) * 2;
+    // Average iris diameter 
+    let avgIrisDiameter = average([leftIrisDiameter, rightIrisDiameter]);
+    // Iris scale factor
+    let irisScaleFactor = IRIS_DIAMETER_AVGERAGE / avgIrisDiameter;
+    // Store iris diameters
+    irisDiameters = {
+      'left'  : leftIrisDiameter,
+      'right' : rightIrisDiameter,
+      'avg'   : avgIrisDiameter,
+      'scale' : irisScaleFactor
+    };
+    // Show iris 
+    plotIris(leftIris[0], leftIrisDiameter, RED);
+    plotIris(rightIris[0], rightIrisDiameter, RED);
   }
-
-  return irisScaleFactor;
-
+  return irisDiameters
 }
 
-async function run() {
+function updateHeadMeasureValues(headMeasures, irisDiameters) {
 
-  stats.begin();
-  const predictions = await model.estimateFaces(
-    video, false /* returnTensors */, false /* flipHorizontal */,
-    state.predictIrises);
-  ctx.drawImage(
-    video, 0, 0, videoWidth, videoHeight, 0, 0, canvas.width, canvas.height);  
-
-  if (predictions.length > 0) {
-    
-    // Display mesh and irises
-    predictions.forEach(prediction => {
-      renderPrediction(prediction);
-      displayLandmarks(prediction);
-      headPose(prediction.scaledMesh);
-    });
-
-    scatterPlot(predictions);
+  // Head measurements
+  const face_height = document.getElementById('measure-face-height');
+  const face_width  = document.getElementById('measure-face-width');
+  const nose_width  = document.getElementById('measure-nose-width');
+  const nose_depth  = document.getElementById('measure-nose-depth');
+  face_height.innerHTML = "Sellion-supramenton = " + headMeasures.faceHeight.toFixed(1) + " mm";
+  face_width.innerHTML  = "Face width = " + headMeasures.faceWidth.toFixed(1) + " mm";
+  nose_width.innerHTML  = "Nose width = " + headMeasures.noseWidth.toFixed(1) + " mm";
+  nose_depth.innerHTML  = "Nose depth = " + headMeasures.noseDepth.toFixed(1) + " mm";
+  
+  // Iris diameters
+  const iris_diam_L = document.getElementById('measure-scaled-iris-diameter-L');
+  const iris_diam_R = document.getElementById('measure-scaled-iris-diameter-R');
+  if (irisDiameters != null) {
+    iris_diam_L.innerHTML = "Scaled iris diameter L = " + irisDiameters.left.toFixed(1);
+    iris_diam_R.innerHTML = "Scaled iris diameter R = " + irisDiameters.right.toFixed(1);  
+  } else {
+    iris_diam_L.innerHTML = "";
+    iris_diam_R.innerHTML = "";
   }
-  stats.end();
-  rafID = requestAnimationFrame(run);
-};
+}
 
-function renderPrediction(prediction) {
+function renderFacemesh(keypoints) {
 
-  const keypoints = prediction.scaledMesh;
+  // Display the face mesh (points or triangulated mesh) superimposed
+  // over the face in the video feed
 
   if (state.triangulateMesh) {
+
     ctx.strokeStyle = GREEN;
     ctx.lineWidth = 0.5;
 
@@ -620,10 +484,11 @@ function renderPrediction(prediction) {
         TRIANGULATION[i * 3], TRIANGULATION[i * 3 + 1],
         TRIANGULATION[i * 3 + 2]
       ].map(index => keypoints[index]);
-
       drawPath(ctx, points, true);
     }
+
   } else {
+
     ctx.fillStyle = GREEN;
 
     for (let i = 0; i < NUM_KEYPOINTS; i++) {
@@ -631,83 +496,10 @@ function renderPrediction(prediction) {
       const y = keypoints[i][1];
 
       ctx.beginPath();
-      ctx.arc(x, y, 1 /* radius */, 0, 2 * Math.PI);
+      ctx.arc(x, y, 1, 0, 2 * Math.PI);
       ctx.fill();
     }
   }
-
-  // Show irises
-  if (keypoints.length > NUM_KEYPOINTS) {
-    ctx.strokeStyle = RED;
-    ctx.lineWidth = 1;
-
-    const leftCenter = keypoints[NUM_KEYPOINTS];
-    const leftDiameterY = distance(
-      keypoints[NUM_KEYPOINTS + 4],
-      keypoints[NUM_KEYPOINTS + 2]);
-    const leftDiameterX = distance(
-      keypoints[NUM_KEYPOINTS + 3],
-      keypoints[NUM_KEYPOINTS + 1]);
-
-    const leftDiameter = 0.5 * (leftDiameterX + leftDiameterY);
-    ctx.beginPath();
-    ctx.ellipse(leftCenter[0], leftCenter[1], leftDiameter / 2.0, leftDiameter / 2.0, 0, 0, 2 * Math.PI);
-    ctx.stroke();
-
-    if (keypoints.length > NUM_KEYPOINTS + NUM_IRIS_KEYPOINTS) {
-      const rightCenter = keypoints[NUM_KEYPOINTS + NUM_IRIS_KEYPOINTS];
-      const rightDiameterY = distance(
-        keypoints[NUM_KEYPOINTS + NUM_IRIS_KEYPOINTS + 2],
-        keypoints[NUM_KEYPOINTS + NUM_IRIS_KEYPOINTS + 4]);
-      const rightDiameterX = distance(
-        keypoints[NUM_KEYPOINTS + NUM_IRIS_KEYPOINTS + 3],
-        keypoints[NUM_KEYPOINTS + NUM_IRIS_KEYPOINTS + 1]);
-
-      const rightDiameter = 0.5 * (rightDiameterX + rightDiameterY);
-      ctx.beginPath();
-      ctx.ellipse(rightCenter[0], rightCenter[1], rightDiameter / 2.0, rightDiameter / 2.0, 0, 0, 2 * Math.PI);
-      ctx.stroke();
-    }
-  }
-
-  // Head pose
-  //headPose(prediction.scaledMesh);
-  //let hp = headPose(prediction.scaledMesh);
-  //let poseLR = hp[0];
-  //let poseUD = hp[1];
-
-  /*
-  // Plots landmarks and update landmark measurements
-  let irisScaleFactor = getLandmarkMeasurements(prediction);
-  if (irisScaleFactor != null) {
-
-    // Estimate nose depth
-    let angleLR = Math.abs(poseLR);
-    let angleUD = Math.abs(poseUD);
-    if ((angleLR >= 10.0) && (angleLR <= 30.0) && (angleUD <= 10.0)) {
-
-      let xyDistance = estimateNoseDepth(prediction.scaledMesh, irisScaleFactor);
-
-      if (noseDepthEstimate.values.length < 50) {
-        let nd = xyDistance / Math.sin(THREE.MathUtils.degToRad(angleLR));
-        noseDepthEstimate.values.push(nd);
-        noseDepthEstimate.angles.push(angleLR);
-        noseDepthEstimate.xydist.push(xyDistance);
-      } else if ((noseDepthEstimate.values.length == 50) && (calculateMean)) {
-        // NOTE: Probably better to replace this with a linear regression of angles vs xydist, then 
-        //       extrapolate this curve to a value of angle = 90 degrees. 
-        // Also need a way of accounting for length due to angleUD. This will particularly influence 
-        // the values of xyDistance at low angleLR values
-        // BETTER YET: Also include angleUD in the regression, and then find the values of angleLR and
-        //             angleUD such that length is 0 (call this angleUD = alpha). Then extrapolate to 
-        //             the nose depth at angleLR = 90 deg and angleUD = alpha deg ie. no contribution 
-        //             from angleUD
-        noseDepthEstimate.estimate = tf.tensor1d(noseDepthEstimate.values, 'float32').mean(0).arraySync();
-        console.log(noseDepthEstimate);
-        calculateMean = false;
-      }
-    }
-  }*/
 }
 
 function scatterPlot(predictions) {
@@ -738,6 +530,68 @@ function scatterPlot(predictions) {
     scatterGLHasInitialized = true;
   }
 }
+
+function checkMeasuredValues(headMeasures) {
+  
+  // Ensure that the head measurements are within physically 
+  // realistic ranges
+  
+  // Nose width
+  if (headMeasures.noseWidth < noseWidthRange.min) {
+    headMeasures.noseWidth = noseWidthRange.min; }
+  if (headMeasures.noseWidth > noseWidthRange.max) {
+    headMeasures.noseWidth = noseWidthRange.max; }
+  
+  // Nose depth
+  if (headMeasures.noseDepth < noseDepthRange.min) {
+    headMeasures.noseDepth = noseDepthRange.min; }
+  if (headMeasures.noseDepth > noseDepthRange.max) {
+    headMeasures.noseDepth = noseDepthRange.max; }
+  
+  return headMeasures;
+}
+
+async function run() {
+
+  stats.begin();
+  const predictions = await model.estimateFaces(
+    video, false /* returnTensors */, false /* flipHorizontal */,
+    state.predictIrises);
+  ctx.drawImage(
+    video, 0, 0, videoWidth, videoHeight, 0, 0, canvas.width, canvas.height);  
+
+  if (predictions.length > 0) {
+    
+    // Display mesh and irises
+    predictions.forEach(prediction => {
+
+      const scaledMesh = prediction.scaledMesh;
+      // Get head orientation
+      headPose(scaledMesh);
+      // Render the face mesh (points or triangulated mesh)
+      renderFacemesh(scaledMesh);
+      // Get face and head landmarks measurements
+      let headMeasures = getHeadMeasures(scaledMesh);
+      // Get iris diameter data
+      let irisMeasures = getIrisMeasures(scaledMesh);
+      // Scale head measures using iris diameter
+      if (irisMeasures != null) {
+        for (const [key, value] of Object.entries(headMeasures)) {
+          headMeasures[key] = value * irisMeasures.scale;
+      }}
+      // Check measured values are physical
+      headMeasures = checkMeasuredValues(headMeasures);
+      // Update html with head measures and iris measures
+      updateHeadMeasureValues(headMeasures, irisMeasures);
+    });
+
+    // Show the scatter plot
+    scatterPlot(predictions);
+
+  }
+  stats.end();
+  rafID = requestAnimationFrame(run);
+};
 
 async function main() {
 
