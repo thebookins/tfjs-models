@@ -28,6 +28,8 @@ import { tensor2d } from '@tensorflow/tfjs-core';
 import { TLSSocket } from 'tls';
 import { MESH_ANNOTATIONS } from '../dist/keypoints';
 
+import { MovingAverage, average, distanceXY } from './utils';
+
 tfjsWasm.setWasmPaths(
   `https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-wasm@${tfjsWasm.version_wasm}/dist/`);
 
@@ -58,6 +60,26 @@ const LMRK = {
 // Face dimension ranges
 const noseDepthRange = {min: 10, max: 40}
 const noseWidthRange = {min: 20, max: 50}
+
+// Moving averages
+var movingAverage_headMeasuresv1 = {
+  'noseWidth'  : new MovingAverage(),
+  'noseDepth'  : new MovingAverage(),
+  'faceHeight' : new MovingAverage(),
+  'faceWidth'  : new MovingAverage()
+}
+var movingAverage_headMeasuresv2 = {
+  'noseWidth'  : new MovingAverage(),
+  'noseDepth'  : new MovingAverage(),
+  'faceHeight' : new MovingAverage(),
+  'faceWidth'  : new MovingAverage()
+}
+var movingAverage_headMeasuresv3 = {
+  'noseWidth'  : new MovingAverage(),
+  'noseDepth'  : new MovingAverage(),
+  'faceHeight' : new MovingAverage(),
+  'faceWidth'  : new MovingAverage()
+}
 
 function isMobile() {
   const isAndroid = /Android/i.test(navigator.userAgent);
@@ -146,27 +168,11 @@ async function setupCamera() {
   });
 }
 
-function average(data) {
-  // Average of all values in the data array
-  return data.reduce((a,b) => (a+b)) / data.length;
-}
-
-function createPlane(normal, pointOn) {
-  let d = normal.dot(pointOn);
-  return new THREE.Plane(normal, d);
-}
-
 function createPlaneAtOrigin(mesh, normal) {
   let ptL = new THREE.Vector3().fromArray(mesh[LMRK.tragion_L]);
   let ptR = new THREE.Vector3().fromArray(mesh[LMRK.tragion_R]);
   let p = ptL.clone().lerp(ptR, 0.5);
-  return createPlane(normal, p);
-}
-
-function distanceXY(a, b) {
-  // Computes the distance in the X-Y plane of points a and b
-  // a, b: Either Vector2 or Vector3
-  return Math.sqrt(Math.pow((a.x-b.x), 2) + Math.pow((a.y-b.y), 2));
+  return new THREE.Plane().setFromNormalAndCoplanarPoint(normal, p);
 }
 
 function headCsysFromPoints(ptL, ptR, piL, piR) {
@@ -199,10 +205,10 @@ function headCsysMoving(mesh) {
 
 function headCsysCanonical() {
   // Coordinates from canonical_face_model.obj in mediapipe repo
-  let ptL = new THREE.Vector3( 7.66418, 0.673132, -2.43587);
-  let ptR = new THREE.Vector3(-7.66418, 0.673132, -2.43587);
-  let piL = new THREE.Vector3( 3.32732, 0.104863,  4.11386);
-  let piR = new THREE.Vector3(-3.32732, 0.104863,  4.11386);
+  let ptL = new THREE.Vector3( 7.66418, 0.673132, -2.43587); // tragion_L
+  let ptR = new THREE.Vector3(-7.66418, 0.673132, -2.43587); // tragion_R
+  let piL = new THREE.Vector3( 3.32732, 0.104863,  4.11386); // infraorb_L
+  let piR = new THREE.Vector3(-3.32732, 0.104863,  4.11386); // infraorb_R
   // Basis matrix
   return headCsysFromPoints(ptL, ptR, piL, piR);  
 }
@@ -318,10 +324,60 @@ function calculateNoseDepth(mesh, plane, tol=2.0) {
       let nLRavg_intersect = new THREE.Vector3();
       nLRavg_ray.intersectPlane(plane, nLRavg_intersect); 
       // Get 3D distance between intersection points 
-      noseDepth = nT_intersect.distanceTo(nLRavg_intersect);
+      noseDepth = nT_intersect.distanceTo(nLRavg_intersect);    
     }
   }
   return noseDepth;
+}
+
+function calculateFaceHeight(mesh, plane, sf=1.0, tol=2.0) {
+  let ray_direction = new THREE.Vector3(0,0,-1);
+  // Get points
+  let psel = new THREE.Vector3().fromArray(mesh[LMRK.sellion]);
+  let psup = new THREE.Vector3().fromArray(mesh[LMRK.supramenton]);
+  //let ptL = new THREE.Vector3().fromArray(mesh[LMRK.tragion_L]);
+  //let ptR = new THREE.Vector3().fromArray(mesh[LMRK.tragion_R]);
+  //let ptavg = ptL.clone().lerp(ptR, 0.5);
+  // Create parallel plane through the tragion average point, then
+  // project both psel and psup onto this plane
+  let plane_sel = new THREE.Plane().setFromNormalAndCoplanarPoint(plane.normal, psel);
+  let projected1= new THREE.Vector3();
+  let projected2= new THREE.Vector3();
+  plane_sel.projectPoint(psel, projected1);
+  plane_sel.projectPoint(psup, projected2);
+  //plotLandmark(projected1, RED);
+  //plotLandmark(projected2, RED);
+
+  //let ray_psel = new THREE.Ray(psel, plane.normal.negate());
+  //let ray_psup = new THREE.Ray(psup, plane.normal.negate());
+  //console.log(ray_psel.intersectsPlane(plane_tavg));
+  //console.log(ray_psup.intersectsPlane(plane_tavg));
+
+  // Ray - Sellion
+  let proj1_origin = new THREE.Vector3(projected1.x, projected1.y, 1e6);
+  let proj1_ray    = new THREE.Ray(proj1_origin, ray_direction);
+  // Ray - Supramenton
+  let proj2_origin = new THREE.Vector3(projected2.x, projected2.y, 1e6);
+  let proj2_ray    = new THREE.Ray(proj2_origin, ray_direction);  
+  // Get intersection points
+  let faceHeight = null;
+  let is_perpendicular = THREE.MathUtils.radToDeg(Math.abs(plane.normal.dot(ray_direction))) < tol;
+  if (!is_perpendicular) {
+    if ((proj1_ray.intersectsPlane(plane)) &&
+        (proj2_ray.intersectsPlane(plane))) {
+      // Sellion
+      let sel_intersect = new THREE.Vector3();
+      proj1_ray.intersectPlane(plane, sel_intersect);
+      // Supramenton
+      let sup_intersect = new THREE.Vector3();
+      proj2_ray.intersectPlane(plane, sup_intersect); 
+      // Get 3D distance between intersection points 
+      faceHeight = sel_intersect.distanceTo(sup_intersect);
+      //movingAverage_faceHeight.update(faceHeight * sf);
+      //console.log("Face height = " + movingAverage_faceHeight.average().toFixed(1) + " mm");
+    }
+  }
+  return faceHeight;
 }
 
 function updateHeadPoseValues(eulerAngles) {
@@ -409,12 +465,12 @@ function getIrisMeasures(scaledMesh) {
     // Left iris
     let leftRadius = [];
     for (let i=1; i<MESH_ANNOTATIONS['leftEyeIris'].length; i++) { 
-      leftRadius.push(leftIris[i].distanceTo(leftIris[0])); }     // Should be distanceXY 
+      leftRadius.push(distanceXY(leftIris[i], leftIris[0])); }
     let leftIrisDiameter = average(leftRadius) * 2;
     // Right iris
     let rightRadius = [];
     for (let i=1; i<MESH_ANNOTATIONS['rightEyeIris'].length; i++) { 
-      rightRadius.push(rightIris[i].distanceTo(rightIris[0])); }  // Should be distanceXY 
+      rightRadius.push(distanceXY(rightIris[i], rightIris[0])); }
     let rightIrisDiameter = average(rightRadius) * 2;
     // Min, max and average iris diameters 
     let avgIrisDiameter = average([leftIrisDiameter, rightIrisDiameter]);
@@ -438,7 +494,28 @@ function getIrisMeasures(scaledMesh) {
   return irisDiameters
 }
 
-function updateHeadMeasureValues(headMeasures, irisDiameters) {
+
+function updateHeadMeasureValues(headMeasures, tableId, tableRowIndex) {
+
+  function updateTableValues(rowIndex, colIndex, text) {
+    let row = document.getElementById(tableId).rows;
+    let targetRow = Math.min(Math.max(rowIndex, 0), row.length-1);
+    let col = row[targetRow].cells;
+    let targetCol = Math.min(Math.max(colIndex, 0), col.length-1);
+    col[targetCol].innerHTML = text;
+  }
+  updateTableValues(1, tableRowIndex, headMeasures.noseWidth.toFixed(1));
+  updateTableValues(2, tableRowIndex, headMeasures.noseDepth.toFixed(1));
+  updateTableValues(3, tableRowIndex, headMeasures.faceHeight.toFixed(1));
+  updateTableValues(4, tableRowIndex, headMeasures.faceWidth.toFixed(1));
+}
+
+
+
+
+
+
+function updateHeadMeasureValuesOLD(headMeasures, irisDiameters) {
 
   // Head measurements
   const face_height = document.getElementById('measure-face-height');
@@ -559,7 +636,7 @@ async function run() {
     predictions.forEach(prediction => {
 
       const mesh = prediction.mesh;
-      const scaledMesh = prediction.scaledMesh;
+      let scaledMesh = prediction.scaledMesh;
       
       // Render the face mesh (points or triangulated mesh)
       renderFacemesh(scaledMesh);   
@@ -571,10 +648,29 @@ async function run() {
       // Update head pose values in html
       updateHeadPoseValues(eulerAngles);
 
+
       // Head measurements v1 - Raw data that comes from facemesh model
+      // --------------------------------------------------------------
       let headMeasuresv1 = getHeadMeasures(mesh, false);
+      // Check measured values are physical
+      //headMeasuresv1 = checkMeasuredValues(headMeasuresv1);      
+      updateHeadMeasureValues(headMeasuresv1, "unfiltered", 1);
+
+      // Update time averaged 
+      for (const [key, value] of Object.entries(headMeasuresv1)) {
+        movingAverage_headMeasuresv1[key].update(value);
+      }
+      let filtered_v1 = {
+        'noseWidth'  : movingAverage_headMeasuresv1.noseWidth.average(),
+        'noseDepth'  : movingAverage_headMeasuresv1.noseDepth.average(),
+        'faceHeight' : movingAverage_headMeasuresv1.faceHeight.average(),
+        'faceWidth'  : movingAverage_headMeasuresv1.faceWidth.average()
+      }
+      updateHeadMeasureValues(filtered_v1, "filtered", 1);
+
 
       // Head measurements v2 - scaledMesh scaled using iris diameter
+      // ------------------------------------------------------------
       // Get face and head landmarks measurements
       let headMeasuresv2 = getHeadMeasures(scaledMesh);
       // Get iris diameter data
@@ -585,34 +681,92 @@ async function run() {
           headMeasuresv2[key] = value * irisMeasures.scale;
       }}
       // Check measured values are physical
-      headMeasuresv2 = checkMeasuredValues(headMeasuresv2);
+      //headMeasuresv2 = checkMeasuredValues(headMeasuresv2);
       // Update html with head measures and iris measures
-      updateHeadMeasureValues(headMeasuresv2, irisMeasures);      
+      updateHeadMeasureValues(headMeasuresv2, "unfiltered", 2);
 
-      // Head measurements v3 - Same as v2, but with projections onto head
-      // planes to improve the accuracy of nose depth  
-      // Estimate nose width
-      let noseWidth = calculateNoseWidth(scaledMesh, headPlanes.frontal);
-      let noseWidth_transverse = calculateNoseWidth(scaledMesh, headPlanes.transverse);
-      // Estimate nose depth
-      let noseDepth = calculateNoseDepth(scaledMesh, headPlanes.median);
-      let noseDepth_transverse = calculateNoseDepth(scaledMesh, headPlanes.transverse);
-      // Scale measurements using iris diameter
-      if (irisMeasures) {
-        if (noseWidth) { noseWidth *= irisMeasures.scale; }
-        if (noseDepth) { noseDepth *= irisMeasures.scale; }
-        if (noseWidth_transverse) {noseDepth_transverse *= irisMeasures.scale; }
+      // Update time averaged 
+      for (const [key, value] of Object.entries(headMeasuresv2)) {
+        movingAverage_headMeasuresv2[key].update(value);
       }
+      let filtered_v2 = {
+        'noseWidth'  : movingAverage_headMeasuresv2.noseWidth.average(),
+        'noseDepth'  : movingAverage_headMeasuresv2.noseDepth.average(),
+        'faceHeight' : movingAverage_headMeasuresv2.faceHeight.average(),
+        'faceWidth'  : movingAverage_headMeasuresv2.faceWidth.average()
+      }
+      updateHeadMeasureValues(filtered_v2, "filtered", 2);
+
+
+      // Head measurements v3 - Same as v2, but with projections onto head planes
+      // ------------------------------------------------------------------------
+      
+      let noseWidth = calculateNoseWidth(scaledMesh, headPlanes.frontal);
+      let noseDepth = calculateNoseDepth(scaledMesh, headPlanes.median);
+      let noseDepthDiag = Math.sqrt(Math.pow(noseWidth/2.0,2) + Math.pow(noseDepth,2));
+      
+      let headMeasuresv3 = {
+        'noseWidth'  : noseWidth,
+        'noseDepth'  : noseDepthDiag,
+        'faceHeight' : -100.0,
+        'faceWidth'  : -100.0
+      }
+      // Scale the values with iris diameter
+      if (irisMeasures) {
+        for (const [key, value] of Object.entries(headMeasuresv3)) {
+          headMeasuresv3[key] = value * irisMeasures.scale;
+      }}
+      // Update html with head measures and iris measures
+      updateHeadMeasureValues(headMeasuresv3, "unfiltered", 3);
+      
+      // Update time averaged 
+      for (const [key, value] of Object.entries(headMeasuresv3)) {
+        movingAverage_headMeasuresv3[key].update(value);
+      }
+      let filtered_v3 = {
+        'noseWidth'  : movingAverage_headMeasuresv3.noseWidth.average(),
+        'noseDepth'  : movingAverage_headMeasuresv3.noseDepth.average(),
+        'faceHeight' : movingAverage_headMeasuresv3.faceHeight.average(),
+        'faceWidth'  : movingAverage_headMeasuresv3.faceWidth.average()
+      }
+      updateHeadMeasureValues(filtered_v3, "filtered", 3);      
+
+
+
+
+      // Estimate nose width
+      //let noseWidth = calculateNoseWidth(scaledMesh, headPlanes.frontal);
+      //let noseWidth_transverse = calculateNoseWidth(scaledMesh, headPlanes.transverse);
+      // Estimate nose depth
+      //let noseDepth = calculateNoseDepth(scaledMesh, headPlanes.median, irisMeasures.scale);
+
+
+
+
+      //let noseDepth_transverse = calculateNoseDepth(scaledMesh, headPlanes.transverse);
+      // Estimate face height
+      //let faceHeight = calculateFaceHeight(scaledMesh, headPlanes.frontal);
+      // Scale measurements using iris diameter
+      //if (irisMeasures) {
+      //  if (faceHeight) { faceHeight *= irisMeasures.scale; }
+      //  if (noseWidth)  { noseWidth *= irisMeasures.scale; }
+      //  if (noseDepth)  { noseDepth *= irisMeasures.scale; }
+      //  if (noseWidth_transverse) {noseWidth_transverse *= irisMeasures.scale; }
+      //}
+      // Moving averages
+      //if (noseWidth) { movingAverage_noseWidth.update(noseWidth); }
+      //console.log("Nose width = " + movingAverage_noseWidth.average().toFixed(1) + " mm");
       // Print
-      if (noseWidth) { console.log("Nose width = " + noseWidth.toFixed(1) + " mm"); }
-      if (noseDepth) { console.log("Nose depth = " + noseDepth.toFixed(1) + " mm"); }
-      if (noseWidth_transverse) { console.log("Nose width transverse = " + noseWidth_transverse.toFixed(1) + " mm"); }
+      //if (faceHeight) { console.log("Face height = " + faceHeight.toFixed(1) + " mm"); }
+      //if (noseWidth)  { console.log("Nose width = " + noseWidth.toFixed(1) + " mm"); }
+      //if (noseDepth)  { console.log("Nose depth = " + noseDepth.toFixed(1) + " mm"); }
+      //if (noseWidth_transverse) { console.log("Nose width transverse = " + noseWidth_transverse.toFixed(1) + " mm"); }
       // Calculate diag nose depth
-      if (noseWidth && noseDepth) {
-        let noseWidthHalf = noseWidth / 2.0;
-        let noseDepthDiag = Math.sqrt(Math.pow(noseWidthHalf,2) + Math.pow(noseDepth,2));
-        console.log("Nose depth diagonal = " + noseDepthDiag.toFixed(1) + " mm");
-      } 
+      //if (noseWidth && noseDepth) {
+      //  let noseWidthHalf = noseWidth / 2.0;
+      //  let noseDepthDiag = Math.sqrt(Math.pow(noseWidthHalf,2) + Math.pow(noseDepth,2));
+      //  //console.log("Nose depth diagonal = " + noseDepthDiag.toFixed(1) + " mm");
+      //} 
     });
 
     // Show the scatter plot

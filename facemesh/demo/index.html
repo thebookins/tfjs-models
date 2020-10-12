@@ -39,8 +39,45 @@ limitations under the License.
   }
 
   #measurements {
-    font-family: Arial, Helvetica, sans-serif;
-    margin: 20px;
+    font-family: "Trebuchet MS", Arial, Helvetica, sans-serif;
+    font-size: 10pt;
+  }
+
+  #head-pose {
+    padding: 8px;
+  }
+
+  caption {
+    font-size: 10pt;
+    display: table-caption;
+    text-align: left;
+    padding: 8px;
+    padding-top: 30px;
+  }
+
+  .tbl {
+    font-family: "Trebuchet MS", Arial, Helvetica, sans-serif;
+    border-collapse: collapse;
+    /*width: 100%;*/
+    width: 500px;
+  }
+
+  .tbl td, .tbl th {
+    font-size: 10pt;
+    border: 1px solid #ddd;
+    padding: 8px;
+  }
+
+  .tbl tr:nth-child(even){background-color: #f2f2f2;}
+
+  .tbl tr:hover {background-color: #ddd;}
+
+  .tbl th {
+    padding-top: 12px;
+    padding-bottom: 12px;
+    text-align: left;
+    background-color: #5d82e7;
+    color: white;
   }
 </style>
 </head>
@@ -59,13 +96,77 @@ limitations under the License.
         </video>
       </div>
       <div id="measurements">
+
         <div id="head-pose">Head position: Turned 0.0 deg to the LEFT, 0.0 deg UPWARDS, and rotated 0.0 deg to the LEFT</div>
-        <div id="measure-face-width">Face width = 0 mm</div>
-        <div id="measure-nose-width">Nose width = 0 mm</div>
-        <div id="measure-nose-depth">Nose depth = 0 mm</div>
-        <div id="measure-face-height">Sellion-supramenton = 0 mm</div>
-        <div id="measure-scaled-iris-diameter-L">Scaled iris diameter Left = 0 mm</div>
-        <div id="measure-scaled-iris-diameter-R">Scaled iris diameter Right = 0 mm</div>
+
+        <table id="unfiltered" class="tbl">
+          <tr>
+            <th>Face measurements (mm)</th>
+            <th>Raw data</th>
+            <th>Iris scaled</th>
+            <th>Projected</th>
+          </tr>
+          <tr>
+            <td>Nose width</td>
+            <td></td>
+            <td></td>
+            <td></td>
+          </tr>
+          <tr>
+            <td>Nose depth</td>
+            <td></td>
+            <td></td>
+            <td></td>
+          </tr>
+          <tr>
+            <td>Face height</td>
+            <td></td>
+            <td></td>
+            <td></td>
+          </tr>
+          <tr>
+            <td>Face width</td>
+            <td></td>
+            <td></td>
+            <td></td>
+          </tr>
+          <caption>Table 1 - Unfiltered data</caption>                      
+        </table>
+
+        <table id="filtered" class="tbl">
+          <tr>
+            <th>Face measurements (mm)</th>
+            <th>Raw data</th>
+            <th>Iris scaled</th>
+            <th>Projected</th>
+          </tr>
+          <tr>
+            <td>Nose width</td>
+            <td></td>
+            <td></td>
+            <td></td>
+          </tr>
+          <tr>
+            <td>Nose depth</td>
+            <td></td>
+            <td></td>
+            <td></td>
+          </tr>
+          <tr>
+            <td>Face height</td>
+            <td></td>
+            <td></td>
+            <td></td>
+          </tr>
+          <tr>
+            <td>Face width</td>
+            <td></td>
+            <td></td>
+            <td></td>
+          </tr>
+          <caption>Table 2 - Filtered data using moving average of last 50 values</caption>                      
+        </table>
+
       </div>
       <div id="scatter-gl-container"></div>
     </div>
