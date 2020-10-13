@@ -114,7 +114,7 @@ function drawPath(ctx, points, closePath) {
 let model, ctx, videoWidth, videoHeight, video, canvas,
   scatterGLHasInitialized = false, scatterGL, rafID;
 
-const VIDEO_SIZE = 500;
+const VIDEO_SIZE = [500, 750]; // (w x h)
 const mobile = isMobile();
 // Don't render the point cloud on mobile in order to maximize performance and
 // to avoid crowding limited screen space.
@@ -165,8 +165,8 @@ async function setupCamera() {
       facingMode: 'user',
       // Only setting the video to a specified size in order to accommodate a
       // point cloud, so on mobile devices accept the default size.
-      width:  mobile ? undefined : 500, //VIDEO_SIZE,
-      height: mobile ? undefined : 750  //VIDEO_SIZE
+      width:  mobile ? undefined : VIDEO_SIZE[0],
+      height: mobile ? undefined : VIDEO_SIZE[1]
     },
   });
   video.srcObject = stream;
@@ -277,7 +277,7 @@ function getHeadPose(mesh) {
 }
 
 function calculateNoseWidth(mesh, plane, tol=2.0) {
-  let ray_origin_z  = 1e4;
+  let ray_origin_z  = 1e+4;
   let ray_direction = new THREE.Vector3(0,0,-1);
   // Get points
   let pnL = new THREE.Vector3().fromArray(mesh[LMRK.nose_alar_L]);
@@ -309,6 +309,7 @@ function calculateNoseWidth(mesh, plane, tol=2.0) {
 
 function calculateNoseDepth(mesh, plane, tol=2.0) {
   // NOTE: Use either the median or transverse planes for noseDepth
+  let ray_origin_z  = 1e+6;
   let ray_direction = new THREE.Vector3(0,0,-1);
   // Get points
   let pnL = new THREE.Vector3().fromArray(mesh[LMRK.nose_alarfacialgroove_L]);
@@ -316,10 +317,10 @@ function calculateNoseDepth(mesh, plane, tol=2.0) {
   let pnT = new THREE.Vector3().fromArray(mesh[LMRK.nose_tip]);
   let pnLRavg = pnL.clone().lerp(pnR, 0.5);
   // Ray - nose tip
-  let nT_origin = new THREE.Vector3(pnT.x, pnT.y, 1e6);
+  let nT_origin = new THREE.Vector3(pnT.x, pnT.y, ray_origin_z);
   let nT_ray    = new THREE.Ray(nT_origin, ray_direction);
   // Ray - nose_LRavg
-  let nLRavg_origin = new THREE.Vector3(pnLRavg.x, pnLRavg.y, 1e6);
+  let nLRavg_origin = new THREE.Vector3(pnLRavg.x, pnLRavg.y, ray_origin_z);
   let nLRavg_ray    = new THREE.Ray(nLRavg_origin, ray_direction);  
   // Get intersection points
   let noseDepth = null;
@@ -341,6 +342,7 @@ function calculateNoseDepth(mesh, plane, tol=2.0) {
 }
 
 function calculateFaceHeight(mesh, plane, tol=2.0) {
+  let ray_origin_z  = 1e+6;
   let ray_direction = new THREE.Vector3(0,0,-1);
   // Get points
   let psel = new THREE.Vector3().fromArray(mesh[LMRK.sellion]);
@@ -364,10 +366,10 @@ function calculateFaceHeight(mesh, plane, tol=2.0) {
   //console.log(ray_psup.intersectsPlane(plane_tavg));
 
   // Ray - Sellion
-  let proj1_origin = new THREE.Vector3(projected1.x, projected1.y, 1e6);
+  let proj1_origin = new THREE.Vector3(projected1.x, projected1.y, ray_origin_z);
   let proj1_ray    = new THREE.Ray(proj1_origin, ray_direction);
   // Ray - Supramenton
-  let proj2_origin = new THREE.Vector3(projected2.x, projected2.y, 1e6);
+  let proj2_origin = new THREE.Vector3(projected2.x, projected2.y, ray_origin_z);
   let proj2_ray    = new THREE.Ray(proj2_origin, ray_direction);  
   // Get intersection points
   let faceHeight = null;
@@ -389,7 +391,87 @@ function calculateFaceHeight(mesh, plane, tol=2.0) {
 }
 
 function calculateFaceWidth(mesh, plane, tol=2.0) {
-  return -100;
+  let ray_origin_z  = 1e+4;
+  let ray_direction = new THREE.Vector3(0,0,-1);
+  // Get points
+  let p_tragion_L = new THREE.Vector3().fromArray(mesh[LMRK.tragion_L]);
+  let p_tragion_R = new THREE.Vector3().fromArray(mesh[LMRK.tragion_R]);
+  // Ray - nose_L
+  let tragionL_origin = new THREE.Vector3(p_tragion_L.x, p_tragion_L.y, ray_origin_z);
+  let tragionL_ray    = new THREE.Ray(tragionL_origin, ray_direction);
+  // Ray - nose_R
+  let tragionR_origin = new THREE.Vector3(p_tragion_R.x, p_tragion_R.y, ray_origin_z);
+  let tragionR_ray    = new THREE.Ray(tragionR_origin, ray_direction);
+  // Get intersection points
+  let faceWidth = null;
+  let is_perpendicular = THREE.MathUtils.radToDeg(Math.abs(plane.normal.dot(ray_direction))) < tol;
+  if (!is_perpendicular) {
+    if ((tragionL_ray.intersectsPlane(plane)) &&
+        (tragionR_ray.intersectsPlane(plane))) {
+      // tragion_L
+      let tragionL_intersect = new THREE.Vector3();
+      tragionL_ray.intersectPlane(plane, tragionL_intersect);
+      // tragion_R
+      let tragionR_intersect = new THREE.Vector3();
+      tragionR_ray.intersectPlane(plane, tragionR_intersect); 
+      // Get 3D distance between intersection points 
+      faceWidth = tragionL_intersect.distanceTo(tragionR_intersect);
+    }
+  }
+  return faceWidth;
+}
+
+function getNoseWidth(mesh, headPlanes) {
+  
+  // NOTE: noseWidth_m and noseWidth_t will not return a value if person is looking 
+  //       straight ahead. Although noseWidth_f should always return a valid value,
+  //       it is only accurate when the person looks straight ahead.
+  
+  let noseWidth_f = calculateNoseWidth(mesh, headPlanes.frontal);
+  let noseWidth_m = calculateNoseWidth(mesh, headPlanes.median);
+  let noseWidth_t = calculateNoseWidth(mesh, headPlanes.transverse);
+
+  // NOTE: ... is the spread operator. It unpacks an array.
+  var data = [noseWidth_f, noseWidth_m, noseWidth_t];
+  data = data.filter(function(i){ return i != null; });
+  let noseWidth = Math.min(...data); 
+
+  return noseWidth;
+}
+
+function getNoseDepth(mesh, headPlanes) {
+  
+  // NOTE: noseDepth_m and noseDepth_t will not return a value if person is looking 
+  //       straight ahead. Although noseDepth_f should always return a valid value,
+  //       it is only accurate when the person looks straight ahead.
+  
+  let noseDepth_f = calculateNoseDepth(mesh, headPlanes.frontal);
+  let noseDepth_m = calculateNoseDepth(mesh, headPlanes.median);
+  let noseDepth_t = calculateNoseDepth(mesh, headPlanes.transverse);
+
+  // NOTE: ... is the spread operator. It unpacks an array.
+  var data = [noseDepth_f, noseDepth_m, noseDepth_t];
+  data = data.filter(function(i){ return i != null; });
+  let noseDepth = Math.min(...data);
+
+  return noseDepth;
+}
+
+function getFaceWidth(mesh, headPlanes) {
+  
+  // NOTE: faceWidth_m and faceWidth_t will not return a value if person is looking 
+  //       straight ahead. Although faceWidth_f should always return a valid value,
+  //       it is only accurate when the person looks straight ahead.
+
+  let faceWidth_f = calculateFaceWidth(mesh, headPlanes.frontal);
+  let faceWidth_m = calculateFaceWidth(mesh, headPlanes.median);
+  let faceWidth_t = calculateFaceWidth(mesh, headPlanes.transverse);
+  
+  var data = [faceWidth_f, faceWidth_m, faceWidth_t];
+  data = data.filter(function(i){ return i != null; });
+  let faceWidth = Math.min(...data);
+
+  return faceWidth;
 }
 
 function updateHeadPoseValues(eulerAngles) {
@@ -693,7 +775,8 @@ async function run() {
       if (irisMeasures) {
         for (const [key, value] of Object.entries(headMeasuresv2)) {
           headMeasuresv2[key] = value * irisMeasures.scale * scaleFactorv2;
-      }}
+        }
+      }
       // Check measured values are physical
       //headMeasuresv2 = checkMeasuredValues(headMeasuresv2);
       // Update html with head measures and iris measures
@@ -728,14 +811,17 @@ async function run() {
       // Head measurements v3 - Same as v2, but with projections onto head planes
       // ------------------------------------------------------------------------
       
-      let noseWidth = calculateNoseWidth(scaledMesh, headPlanes.frontal);
-      let noseDepth = calculateNoseDepth(scaledMesh, headPlanes.median);
-      let faceHeight = calculateFaceHeight(scaledMesh, headPlanes.frontal);
-      let faceWidth = calculateFaceWidth(scaledMesh, headPlanes.frontal);
+      let noseWidth = getNoseWidth(scaledMesh, headPlanes);
+      let noseDepth = getNoseDepth(scaledMesh, headPlanes); // STILL NEEDS WORK. See below
+      let faceWidth = getFaceWidth(scaledMesh, headPlanes);
+      console.log('Nose width = ' + (noseWidth * irisMeasures.scale).toFixed(1));
+      console.log('Nose depth = ' + (noseDepth * irisMeasures.scale).toFixed(1));
+      console.log('Face width = ' + (faceWidth * irisMeasures.scale).toFixed(1));
 
-      //if (noseWidth  == null) { noseWidth  = movingAverage_headMeasuresv3.noseWidth.getLastValue();  }
-      //if (noseDepth  == null) { noseDepth  = movingAverage_headMeasuresv3.noseDepth.getLastValue();  }
-      //if (faceHeight == null) { faceHeight = movingAverage_headMeasuresv3.faceHeight.getLastValue(); }
+      // STILL NEED WORK
+      // Needs to be a measurement in 1 coordinate direction only
+      //let noseDepth = calculateNoseDepth(scaledMesh, headPlanes.median);
+      let faceHeight = calculateFaceHeight(scaledMesh, headPlanes.frontal);
       
       let noseDepthDiag = Math.sqrt(Math.pow(noseWidth/2.0,2) + Math.pow(noseDepth,2));
       
@@ -749,7 +835,8 @@ async function run() {
       if (irisMeasures) {
         for (const [key, value] of Object.entries(headMeasuresv3)) {
           headMeasuresv3[key] = value * irisMeasures.scale * scaleFactorv3;
-      }}
+        }
+      }
       // Update html with head measures and iris measures
       //updateHeadMeasureValues(headMeasuresv3, "unfiltered", 3);
       
@@ -807,7 +894,7 @@ async function main() {
 
   if (renderPointcloud) {
     document.querySelector('#scatter-gl-container').style =
-      `width: ${VIDEO_SIZE}px; height: ${VIDEO_SIZE}px;`;
+      `width: ${VIDEO_SIZE[0]}px; height: ${VIDEO_SIZE[1]}px;`;
 
     scatterGL = new ScatterGL(
       document.querySelector('#scatter-gl-container'),
