@@ -20,9 +20,20 @@ limitations under the License.
 <!-- Load scatter-gl.js -->
 <script src="https://cdn.jsdelivr.net/npm/scatter-gl@0.0.1/lib/scatter-gl.min.js"></script>
 <style>
+  
+  /*
   .canvas-wrapper, #scatter-gl-container {
     display: inline-block;
     vertical-align: top;
+  }
+  */
+  .canvas-wrapper, #measurements {
+    display: inline-block;
+    vertical-align: top;
+  } 
+
+  .canvas-wrapper {
+    padding: 10px;
   }
 
   #scatter-gl-container {
@@ -41,6 +52,7 @@ limitations under the License.
   #measurements {
     font-family: "Trebuchet MS", Arial, Helvetica, sans-serif;
     font-size: 10pt;
+    padding-left: 10px;
   }
 
   #head-pose {
@@ -208,7 +220,7 @@ limitations under the License.
         </table>        
 
       </div>
-      <div id="scatter-gl-container"></div>
+      <!--<div id="scatter-gl-container"></div>-->
     </div>
   </div>
 </body>

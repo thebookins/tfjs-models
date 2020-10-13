@@ -42,8 +42,9 @@ const BLUE = "#0000FF";
 const WHITE = "#FFFFFF";
 
 // Iris scaling
-const scaleFactor = 1.0;
-const IRIS_DIAMETER_AVGERAGE = 11.7 * scaleFactor;
+const scaleFactorv2 = 1.05;
+const scaleFactorv3 = 1.00;
+const IRIS_DIAMETER_AVGERAGE = 11.7;
 
 // Landmark list
 const LMRK = {
@@ -60,9 +61,13 @@ const LMRK = {
   tragion_R: 234
 };
 
-// Face dimension ranges
-const noseDepthRange = {min: 10, max: 40};
-const noseWidthRange = {min: 20, max: 50};
+// Physical dimension ranges (from mask_sizing.js fit ranges) 
+var physicalRanges = {
+  'noseWidth'  : {'min': 23, 'max': 55},
+  'noseDepth'  : {'min': 16, 'max': 39},
+  'faceHeight' : {'min': 74, 'max': 110},
+  'faceWidth'  : {'min':  0, 'max': 200} // No reference
+}
 
 // Moving averages
 var movingAverage_headMeasuresv1 = {
@@ -160,8 +165,8 @@ async function setupCamera() {
       facingMode: 'user',
       // Only setting the video to a specified size in order to accommodate a
       // point cloud, so on mobile devices accept the default size.
-      width: mobile ? undefined : VIDEO_SIZE,
-      height: mobile ? undefined : VIDEO_SIZE
+      width:  mobile ? undefined : 500, //VIDEO_SIZE,
+      height: mobile ? undefined : 750  //VIDEO_SIZE
     },
   });
   video.srcObject = stream;
@@ -687,7 +692,7 @@ async function run() {
       // Scale head measures using iris diameter
       if (irisMeasures) {
         for (const [key, value] of Object.entries(headMeasuresv2)) {
-          headMeasuresv2[key] = value * irisMeasures.scale;
+          headMeasuresv2[key] = value * irisMeasures.scale * scaleFactorv2;
       }}
       // Check measured values are physical
       //headMeasuresv2 = checkMeasuredValues(headMeasuresv2);
@@ -743,10 +748,10 @@ async function run() {
       // Scale the values with iris diameter
       if (irisMeasures) {
         for (const [key, value] of Object.entries(headMeasuresv3)) {
-          headMeasuresv3[key] = value * irisMeasures.scale;
+          headMeasuresv3[key] = value * irisMeasures.scale * scaleFactorv3;
       }}
       // Update html with head measures and iris measures
-      updateHeadMeasureValues(headMeasuresv3, "unfiltered", 3);
+      //updateHeadMeasureValues(headMeasuresv3, "unfiltered", 3);
       
       // Update time averaged 
       for (const [key, value] of Object.entries(headMeasuresv3)) {
@@ -758,7 +763,7 @@ async function run() {
         'faceHeight' : movingAverage_headMeasuresv3.faceHeight.average(),
         'faceWidth'  : movingAverage_headMeasuresv3.faceWidth.average()
       }
-      updateHeadMeasureValues(filtered_v3, "filtered", 3);
+      //updateHeadMeasureValues(filtered_v3, "filtered", 3);
     });
 
     // Show the scatter plot
