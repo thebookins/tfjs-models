@@ -10,14 +10,17 @@ export class MovingAverage {
     clear() {
         this.data = [];
     }
+    getLastValue() {
+        return this.data[this.data.length-1];
+    }
     getValues() {
         return this.data;
     }
     update(new_value) {
         if (this.data.length == this.max_length) {
-        this.data.shift();
+        this.data.shift(); // Removes first value in array
         }
-        this.data.push(new_value);
+        this.data.push(new_value); // Adds new value to the end of array
     }
 }
 

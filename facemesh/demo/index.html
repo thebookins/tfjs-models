@@ -99,39 +99,45 @@ limitations under the License.
 
         <div id="head-pose">Head position: Turned 0.0 deg to the LEFT, 0.0 deg UPWARDS, and rotated 0.0 deg to the LEFT</div>
 
-        <table id="unfiltered" class="tbl">
+        <table id="mask-size-recommend" class="tbl">
           <tr>
-            <th>Face measurements (mm)</th>
+            <th>Mask type</th>
             <th>Raw data</th>
             <th>Iris scaled</th>
             <th>Projected</th>
           </tr>
           <tr>
-            <td>Nose width</td>
+            <td>F20</td>
             <td></td>
             <td></td>
             <td></td>
           </tr>
           <tr>
-            <td>Nose depth</td>
+            <td>F30</td>
             <td></td>
             <td></td>
             <td></td>
           </tr>
           <tr>
-            <td>Face height</td>
+            <td>F30i</td>
             <td></td>
             <td></td>
             <td></td>
           </tr>
           <tr>
-            <td>Face width</td>
+            <td>N20</td>
             <td></td>
             <td></td>
             <td></td>
           </tr>
-          <caption>Table 1 - Unfiltered data</caption>                      
-        </table>
+          <tr>
+            <td>N30i</td>
+            <td></td>
+            <td></td>
+            <td></td>
+          </tr>          
+          <caption>Table 1 - Recommended mask size for each mask type</caption>                      
+        </table>      
 
         <table id="filtered" class="tbl">
           <tr>
@@ -166,6 +172,40 @@ limitations under the License.
           </tr>
           <caption>Table 2 - Filtered data using moving average of last 50 values</caption>                      
         </table>
+
+        <table id="unfiltered" class="tbl">
+          <tr>
+            <th>Face measurements (mm)</th>
+            <th>Raw data</th>
+            <th>Iris scaled</th>
+            <th>Projected</th>
+          </tr>
+          <tr>
+            <td>Nose width</td>
+            <td></td>
+            <td></td>
+            <td></td>
+          </tr>
+          <tr>
+            <td>Nose depth</td>
+            <td></td>
+            <td></td>
+            <td></td>
+          </tr>
+          <tr>
+            <td>Face height</td>
+            <td></td>
+            <td></td>
+            <td></td>
+          </tr>
+          <tr>
+            <td>Face width</td>
+            <td></td>
+            <td></td>
+            <td></td>
+          </tr>
+          <caption>Table 3 - Unfiltered data</caption>                      
+        </table>        
 
       </div>
       <div id="scatter-gl-container"></div>
