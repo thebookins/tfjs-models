@@ -289,7 +289,7 @@ export class Pipeline {
         }
       });
 
-      console.log(`scaledBoxes = ${scaledBoxes}`);
+      console.log(`scaledBoxes = ${JSON.stringify(scaledBoxes)}`);
 
       this.updateRegionsOfInterest(scaledBoxes);
       this.runsWithoutFaceDetector = 0;
