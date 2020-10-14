@@ -270,7 +270,9 @@ export class Pipeline {
 
           const scaledBox =
             scaleBoxCoordinates(predictionBoxCPU, scaleFactor as Coord2D);
+          console.log(`scaledBox = ${JSON.stringify(scaledBox)}`);
           const enlargedBox = enlargeBox(scaledBox);
+          console.log(`enlargedBox = ${JSON.stringify(enlargedBox)}`);
           return {
             ...enlargedBox,
             landmarks: prediction.landmarks.arraySync() as Coords3D
@@ -288,8 +290,6 @@ export class Pipeline {
           box.endPoint.dispose();
         }
       });
-
-      console.log(`scaledBoxes = ${JSON.stringify(scaledBoxes)}`);
 
       this.updateRegionsOfInterest(scaledBoxes);
       this.runsWithoutFaceDetector = 0;
