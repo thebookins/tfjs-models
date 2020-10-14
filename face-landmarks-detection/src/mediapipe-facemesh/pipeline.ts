@@ -255,6 +255,8 @@ export class Pipeline {
         await this.boundingBoxDetector.getBoundingBoxes(
           input, returnTensors, annotateFace);
 
+      console.log(`scaleFactor = ${JSON.stringify(scaleFactor)}`);
+
       if (boxes.length === 0) {
         this.regionsOfInterest = [];
         return null;
