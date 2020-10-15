@@ -133,8 +133,11 @@ export class Pipeline {
     rotationMatrix: TransformationMatrix) {
     const boxSize =
       getBoxSize({ startPoint: box.startPoint, endPoint: box.endPoint });
+    console.log(`box size = ${boxSize}`)
     const scaleFactor =
       [boxSize[0] / this.meshWidth, boxSize[1] / this.meshHeight];
+    console.log(`scaleFactor = ${scaleFactor}`)
+
     const coordsScaled = rawCoords.map(
       coord => ([
         scaleFactor[0] * (coord[0] - this.meshWidth / 2),
@@ -272,9 +275,7 @@ export class Pipeline {
 
           const scaledBox =
             scaleBoxCoordinates(predictionBoxCPU, scaleFactor as Coord2D);
-          console.log(`scaledBox = ${JSON.stringify(scaledBox)}`);
           const enlargedBox = enlargeBox(scaledBox);
-          console.log(`enlargedBox = ${JSON.stringify(enlargedBox)}`);
           return {
             ...enlargedBox,
             landmarks: prediction.landmarks.arraySync() as Coords3D
@@ -318,14 +319,14 @@ export class Pipeline {
         angle = computeRotation(
           box.landmarks[indexOfMouth], box.landmarks[indexOfForehead]);
 
-        console.log(`angle = ${angle}`);
+        //console.log(`angle = ${angle}`);
 
         const faceCenter =
           getBoxCenter({ startPoint: box.startPoint, endPoint: box.endPoint });
         const faceCenterNormalized: Coord2D =
           [faceCenter[0] / input.shape[2], faceCenter[1] / input.shape[1]];
 
-        console.log(`faceCenterNormalized = ${JSON.stringify(faceCenterNormalized)}`);
+        //console.log(`faceCenterNormalized = ${JSON.stringify(faceCenterNormalized)}`);
 
         let rotatedImage = input;
         let rotationMatrix = IDENTITY_MATRIX;
@@ -349,7 +350,7 @@ export class Pipeline {
 
         const coordsReshaped: tf.Tensor2D = tf.reshape(coords, [-1, 3]);
         let rawCoords = coordsReshaped.arraySync() as Coords3D;
-        console.log(`rawCoords = ${JSON.stringify(rawCoords)}`);
+        //console.log(`rawCoords = ${JSON.stringify(rawCoords)}`);
 
         if (predictIrises) {
           const { box: leftEyeBox, boxSize: leftEyeBoxSize, crop: leftEyeCrop } =
@@ -374,7 +375,7 @@ export class Pipeline {
           const { rawCoords: leftEyeRawCoords, iris: leftIrisRawCoords } =
             this.getEyeCoords(leftEyeData, leftEyeBox, leftEyeBoxSize, true);
 
-          console.log(`leftIrisRawCoords = ${JSON.stringify(leftIrisRawCoords)}`);
+          //console.log(`leftIrisRawCoords = ${JSON.stringify(leftIrisRawCoords)}`);
 
 
           const rightEyeData =
@@ -382,7 +383,7 @@ export class Pipeline {
           const { rawCoords: rightEyeRawCoords, iris: rightIrisRawCoords } =
             this.getEyeCoords(rightEyeData, rightEyeBox, rightEyeBoxSize);
 
-          console.log(`rightIrisRawCoords = ${JSON.stringify(rightIrisRawCoords)}`);
+          //console.log(`rightIrisRawCoords = ${JSON.stringify(rightIrisRawCoords)}`);
 
           const leftToRightEyeDepthDifference =
             this.getLeftToRightEyeDepthDifference(rawCoords);
