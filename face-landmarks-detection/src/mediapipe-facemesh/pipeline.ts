@@ -318,10 +318,14 @@ export class Pipeline {
         angle = computeRotation(
           box.landmarks[indexOfMouth], box.landmarks[indexOfForehead]);
 
+        console.log(`angle = ${angle}`);
+
         const faceCenter =
           getBoxCenter({ startPoint: box.startPoint, endPoint: box.endPoint });
         const faceCenterNormalized: Coord2D =
           [faceCenter[0] / input.shape[2], faceCenter[1] / input.shape[1]];
+
+        console.log(`faceCenterNormalized = ${JSON.stringify(faceCenterNormalized)}`);
 
         let rotatedImage = input;
         let rotationMatrix = IDENTITY_MATRIX;
