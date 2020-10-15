@@ -374,10 +374,15 @@ export class Pipeline {
           const { rawCoords: leftEyeRawCoords, iris: leftIrisRawCoords } =
             this.getEyeCoords(leftEyeData, leftEyeBox, leftEyeBoxSize, true);
 
+          console.log(`leftIrisRawCoords = ${JSON.stringify(leftIrisRawCoords)}`);
+
+
           const rightEyeData =
             eyePredictionsData.slice(IRIS_NUM_COORDINATES * 3);
           const { rawCoords: rightEyeRawCoords, iris: rightIrisRawCoords } =
             this.getEyeCoords(rightEyeData, rightEyeBox, rightEyeBoxSize);
+
+          console.log(`rightIrisRawCoords = ${JSON.stringify(rightIrisRawCoords)}`);
 
           const leftToRightEyeDepthDifference =
             this.getLeftToRightEyeDepthDifference(rawCoords);
