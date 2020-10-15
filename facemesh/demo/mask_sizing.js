@@ -21,8 +21,8 @@ var fit_range_N20 = {
 
 var fit_range_N30i = {
     'S':  {'NW': [27,40],   'NL': [21.3,33.3]},
-    'M':  {'NW': [31,46.5], 'NL': [26,38]},
     'SW': {'NW': [33,50],   'NL': [16.5,32]},
+    'M':  {'NW': [31,46.5], 'NL': [26,38]},
     'W':  {'NW': [43,55],   'NL': [21.3,39]}};
 
 var fit_range_F30 = {
@@ -37,8 +37,7 @@ var fit_range_F30i = {
 
 // F20 mask
 function is_within_bounds_F20(size, faceHeight) {
-    let fh_low = fit_range_F20[size][0];
-    let fh_upp = fit_range_F20[size][1];
+    let [fh_low, fh_upp] = fit_range_F20[size];
     return faceHeight >= fh_low && faceHeight <= fh_upp;
 }
 
@@ -49,8 +48,7 @@ export function mask_sizer_F20(faceHeight) {
 
     let mask_size = null;
     for (const [key, value] of Object.entries(fit_range_F20)) {
-        let low = value[0];
-        let upp = value[1];
+        let [low, upp] = value;
         if ((faceHeight >= low) && (faceHeight <= upp)) {
             mask_size = key;
         }
@@ -68,8 +66,7 @@ export function mask_sizer_F20(faceHeight) {
 
 // N20 mask
 function is_within_bounds_N20(size, noseBreadth) {
-    let nb_low = fit_range_N20[size][0];
-    let nb_upp = fit_range_N20[size][1];
+    let [nb_low, nb_upp] = fit_range_N20[size];
     return noseBreadth >= nb_low && noseBreadth <= nb_upp;
 }
 
@@ -80,8 +77,7 @@ export function mask_sizer_N20(noseBreadth) {
     let min_score = null;
     let mask_size = null;
     for (const [key, value] of Object.entries(fit_range_N20)) {
-        let nb_low = value[0];
-        let nb_upp = value[1];
+        let [nb_low, nb_upp] = value;
         if ((noseBreadth >= nb_low) && (noseBreadth <= nb_upp)) {
             let nb_centroid = average([nb_low, nb_upp]);
             let score = Math.sqrt(Math.pow((noseBreadth-nb_centroid), 2));
@@ -104,10 +100,8 @@ export function mask_sizer_N20(noseBreadth) {
 
 // N30i
 function is_within_bounds_N30i(size, noseWidth, noseLength) {
-    let nw_low = fit_range_N30i[size]['NW'][0];
-    let nw_upp = fit_range_N30i[size]['NW'][1];
-    let nl_low = fit_range_N30i[size]['NL'][0]; 
-    let nl_upp = fit_range_N30i[size]['NL'][1];
+    let [nw_low, nw_upp] = fit_range_N30i[size]['NW'];
+    let [nl_low, nl_upp] = fit_range_N30i[size]['NL'];
     return noseWidth >= nw_low && noseWidth <= nw_upp && noseLength >= nl_low && noseLength <= nl_upp;
 }
 
@@ -121,10 +115,8 @@ export function mask_sizer_N30i(noseWidth, noseLength=null, ethnicity=null) {
         let mask_size = null;
 
         for (const[key, value] of Object.entries(fit_range)) {
-            let nw_low = value['NW'][0];
-            let nw_upp = value['NW'][1];
-            let nl_low = value['NL'][0];
-            let nl_upp = value['NL'][1]; 
+            let [nw_low, nw_upp] = value['NW'];
+            let [nl_low, nl_upp] = value['NL'];
             let nw_centroid = average([nw_low, nw_upp]);           
             let nl_centroid = average([nl_low, nl_upp]);
 
@@ -179,10 +171,8 @@ export function mask_sizer_N30i(noseWidth, noseLength=null, ethnicity=null) {
 
 // F30
 function is_within_bounds_F30(size, noseWidth, noseLength) {
-    let nw_low = fit_range_F30[size]['NW'][0];
-    let nw_upp = fit_range_F30[size]['NW'][1];
-    let nl_low = fit_range_F30[size]['NL'][0]; 
-    let nl_upp = fit_range_F30[size]['NL'][1];
+    let [nw_low, nw_upp] = fit_range_F30[size]['NW'];
+    let [nl_low, nl_upp] = fit_range_F30[size]['NL'];
     return noseWidth >= nw_low && noseWidth <= nw_upp && noseLength >= nl_low && noseLength <= nl_upp;
 }
 
@@ -196,10 +186,8 @@ export function mask_sizer_F30(noseWidth, noseLength=null) {
         let mask_size = null;
 
         for (const[key, value] of Object.entries(fit_range)) {
-            let nw_low = value['NW'][0];
-            let nw_upp = value['NW'][1];
-            let nl_low = value['NL'][0];
-            let nl_upp = value['NL'][1]; 
+            let [nw_low, nw_upp] = value['NW'];
+            let [nl_low, nl_upp] = value['NL'];            
             let nw_centroid = average([nw_low, nw_upp]);           
             let nl_centroid = average([nl_low, nl_upp]);
 
@@ -228,10 +216,8 @@ export function mask_sizer_F30(noseWidth, noseLength=null) {
 
 // F30i
 function is_within_bounds_F30i(size, noseWidth, noseLength) {
-    let nw_low = fit_range_F30i[size]['NW'][0];
-    let nw_upp = fit_range_F30i[size]['NW'][1];
-    let nl_low = fit_range_F30i[size]['NL'][0]; 
-    let nl_upp = fit_range_F30i[size]['NL'][1];
+    let [nw_low, nw_upp] = fit_range_F30i[size]['NW'];
+    let [nl_low, nl_upp] = fit_range_F30i[size]['NL'];
     return noseWidth >= nw_low && noseWidth <= nw_upp && noseLength >= nl_low && noseLength <= nl_upp;
 }
 
@@ -245,10 +231,8 @@ export function mask_sizer_F30i(noseWidth, noseLength=null, ethnicity=null) {
         let mask_size = null;
 
         for (const[key, value] of Object.entries(fit_range)) {
-            let nw_low = value['NW'][0];
-            let nw_upp = value['NW'][1];
-            let nl_low = value['NL'][0];
-            let nl_upp = value['NL'][1]; 
+            let [nw_low, nw_upp] = value['NW'];
+            let [nl_low, nl_upp] = value['NL']; 
             let nw_centroid = average([nw_low, nw_upp]);           
             let nl_centroid = average([nl_low, nl_upp]);
 

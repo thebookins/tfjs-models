@@ -28,8 +28,9 @@ import { tensor2d } from '@tensorflow/tfjs-core';
 import { TLSSocket } from 'tls';
 import { MESH_ANNOTATIONS } from '../dist/keypoints';
 
-import { MovingAverage, average, distanceXY } from './utils';
+import { MovingAverage, average, distanceXY, ScanMeasurements } from './utils';
 import { mask_sizer_F20, mask_sizer_F30, mask_sizer_F30i, mask_sizer_N20, mask_sizer_N30i } from './mask_sizing';
+import { objectify } from 'tslint/lib/utils';
 
 tfjsWasm.setWasmPaths(
   `https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-wasm@${tfjsWasm.version_wasm}/dist/`);
@@ -43,7 +44,7 @@ const WHITE = "#FFFFFF";
 
 // Iris scaling
 const scaleFactorv2 = 1.05;
-const scaleFactorv3 = 1.00;
+const scaleFactorv3 = 1.05;
 const IRIS_DIAMETER_AVGERAGE = 11.7;
 
 // Landmark list
@@ -90,6 +91,8 @@ var movingAverage_headMeasuresv3 = {
   'faceHeight' : new MovingAverage(),
   'faceWidth'  : new MovingAverage()
 };
+
+var scanMeasurementsv1 = new ScanMeasurements('c:\temp\data_v1.json');
 
 function isMobile() {
   const isAndroid = /Android/i.test(navigator.userAgent);
@@ -276,7 +279,7 @@ function getHeadPose(mesh) {
   return [eulerAngles, headPlanes];
 }
 
-function calculateNoseWidth(mesh, plane, tol=2.0) {
+function calculateNoseWidth(mesh, plane, tol=1.5) {
   let ray_origin_z  = 1e+4;
   let ray_direction = new THREE.Vector3(0,0,-1);
   // Get points
@@ -307,7 +310,7 @@ function calculateNoseWidth(mesh, plane, tol=2.0) {
   return noseWidth;
 }
 
-function calculateNoseDepth(mesh, plane, tol=2.0) {
+function calculateNoseDepth(mesh, plane, tol=1.5) {
   // NOTE: Use either the median or transverse planes for noseDepth
   let ray_origin_z  = 1e+6;
   let ray_direction = new THREE.Vector3(0,0,-1);
@@ -341,7 +344,7 @@ function calculateNoseDepth(mesh, plane, tol=2.0) {
   return noseDepth;
 }
 
-function calculateFaceHeight(mesh, plane, tol=2.0) {
+function calculateFaceHeight(mesh, plane, tol=1.5) {
   let ray_origin_z  = 1e+6;
   let ray_direction = new THREE.Vector3(0,0,-1);
   // Get points
@@ -390,7 +393,7 @@ function calculateFaceHeight(mesh, plane, tol=2.0) {
   return faceHeight;
 }
 
-function calculateFaceWidth(mesh, plane, tol=2.0) {
+function calculateFaceWidth(mesh, plane, tol=1.5) {
   let ray_origin_z  = 1e+4;
   let ray_direction = new THREE.Vector3(0,0,-1);
   // Get points
@@ -421,57 +424,57 @@ function calculateFaceWidth(mesh, plane, tol=2.0) {
   return faceWidth;
 }
 
-function getNoseWidth(mesh, headPlanes) {
+function getFaceWidth(mesh, headPlanes, irisScaleFactor) {
   
-  // NOTE: noseWidth_m and noseWidth_t will not return a value if person is looking 
-  //       straight ahead. Although noseWidth_f should always return a valid value,
+  // NOTE: faceWidth_t will not return a value if person is looking straight 
+  //       ahead. Although faceWidth_f should always return a valid value,
+  //       it is only accurate when the person looks straight ahead.
+
+  let faceWidth_f = calculateFaceWidth(mesh, headPlanes.frontal);
+  let faceWidth_t = calculateFaceWidth(mesh, headPlanes.transverse);
+  
+  var data = [faceWidth_f, faceWidth_t];
+  data = data.filter(function(i){ return i != null; });
+  let faceWidth = Math.min(...data) * irisScaleFactor;
+
+  return faceWidth;
+}
+
+function getNoseWidth(mesh, headPlanes, irisScaleFactor) {
+  
+  // NOTE: noseWidth_t will not return a value if person is looking straight
+  //       ahead. Although noseWidth_f should always return a valid value,
   //       it is only accurate when the person looks straight ahead.
   
   let noseWidth_f = calculateNoseWidth(mesh, headPlanes.frontal);
-  let noseWidth_m = calculateNoseWidth(mesh, headPlanes.median);
   let noseWidth_t = calculateNoseWidth(mesh, headPlanes.transverse);
 
   // NOTE: ... is the spread operator. It unpacks an array.
-  var data = [noseWidth_f, noseWidth_m, noseWidth_t];
+  var data = [noseWidth_f, noseWidth_t];
   data = data.filter(function(i){ return i != null; });
-  let noseWidth = Math.min(...data); 
+  let noseWidth = Math.min(...data) * irisScaleFactor; 
 
   return noseWidth;
 }
 
-function getNoseDepth(mesh, headPlanes) {
+function getNoseDepth(mesh, headPlanes, irisScaleFactor) {
   
-  // NOTE: noseDepth_m and noseDepth_t will not return a value if person is looking 
-  //       straight ahead. Although noseDepth_f should always return a valid value,
-  //       it is only accurate when the person looks straight ahead.
+  // NOTE: noseDepth_m and noseDepth_t will not return a value if person 
+  // is looking straight ahead.
   
-  let noseDepth_f = calculateNoseDepth(mesh, headPlanes.frontal);
-  let noseDepth_m = calculateNoseDepth(mesh, headPlanes.median);
-  let noseDepth_t = calculateNoseDepth(mesh, headPlanes.transverse);
-
+  let noseDepth = calculateNoseDepth(mesh, headPlanes.median);
+  if (noseDepth) {
+    noseDepth *= irisScaleFactor;
+  }
   // NOTE: ... is the spread operator. It unpacks an array.
-  var data = [noseDepth_f, noseDepth_m, noseDepth_t];
-  data = data.filter(function(i){ return i != null; });
-  let noseDepth = Math.min(...data);
+  //var data = [noseDepth_m, noseDepth_t];
+  //data = data.filter(function(i){ return i != null; });
+  //let noseDepth = Math.min(...data) * irisScaleFactor;
+
+  //console.log(noseDepth_m * irisScaleFactor, noseDepth_t * irisScaleFactor);
+  //console.log(noseDepth);
 
   return noseDepth;
-}
-
-function getFaceWidth(mesh, headPlanes) {
-  
-  // NOTE: faceWidth_m and faceWidth_t will not return a value if person is looking 
-  //       straight ahead. Although faceWidth_f should always return a valid value,
-  //       it is only accurate when the person looks straight ahead.
-
-  let faceWidth_f = calculateFaceWidth(mesh, headPlanes.frontal);
-  let faceWidth_m = calculateFaceWidth(mesh, headPlanes.median);
-  let faceWidth_t = calculateFaceWidth(mesh, headPlanes.transverse);
-  
-  var data = [faceWidth_f, faceWidth_m, faceWidth_t];
-  data = data.filter(function(i){ return i != null; });
-  let faceWidth = Math.min(...data);
-
-  return faceWidth;
 }
 
 function updateHeadPoseValues(eulerAngles) {
@@ -601,10 +604,15 @@ function updateHeadMeasureValues(headMeasures, tableId, tableRowIndex) {
     let targetCol = Math.min(Math.max(colIndex, 0), col.length-1);
     col[targetCol].innerHTML = text;
   }
-  updateTableValues(1, tableRowIndex, headMeasures.noseWidth.toFixed(1));
-  updateTableValues(2, tableRowIndex, headMeasures.noseDepth.toFixed(1));
-  updateTableValues(3, tableRowIndex, headMeasures.faceHeight.toFixed(1));
-  updateTableValues(4, tableRowIndex, headMeasures.faceWidth.toFixed(1));
+  for (const[k,v] of Object.entries({'noseWidth':1,'noseDepth':2,'faceHeight':3,'faceWidth':4})) {
+    if (headMeasures[k] != null) {
+      updateTableValues(v, tableRowIndex, headMeasures[k].toFixed(1)); 
+    }
+  }
+  //updateTableValues(1, tableRowIndex, headMeasures.noseWidth.toFixed(1));
+  //updateTableValues(2, tableRowIndex, headMeasures.noseDepth.toFixed(1));
+  //updateTableValues(3, tableRowIndex, headMeasures.faceHeight.toFixed(1));
+  //updateTableValues(4, tableRowIndex, headMeasures.faceWidth.toFixed(1));
 }
 
 function updateMaskSizeRecommend(maskSizes, tableId, tableRowIndex) {
@@ -725,9 +733,7 @@ async function run() {
       renderFacemesh(scaledMesh);   
 
       // Get head orientation (could use mesh or scaledMesh)
-      let headPose = getHeadPose(scaledMesh);
-      let eulerAngles = headPose[0];
-      let headPlanes  = headPose[1];
+      let [eulerAngles, headPlanes] = getHeadPose(scaledMesh);
       // Update head pose values in html
       updateHeadPoseValues(eulerAngles);
 
@@ -738,6 +744,9 @@ async function run() {
       // Check measured values are physical
       //headMeasuresv1 = checkMeasuredValues(headMeasuresv1);      
       updateHeadMeasureValues(headMeasuresv1, "unfiltered", 1);
+      
+      // Write to file
+      scanMeasurementsv1.updateData(headMeasuresv1);
 
       // Update time averaged 
       for (const [key, value] of Object.entries(headMeasuresv1)) {
@@ -748,7 +757,7 @@ async function run() {
         'noseDepth'  : movingAverage_headMeasuresv1.noseDepth.average(),
         'faceHeight' : movingAverage_headMeasuresv1.faceHeight.average(),
         'faceWidth'  : movingAverage_headMeasuresv1.faceWidth.average()
-      }
+      };
       updateHeadMeasureValues(filtered_v1, "filtered", 1);
 
       // Add mask size recommendation
@@ -761,7 +770,7 @@ async function run() {
         'F30i' : mask_sizer_F30i(nw1, nd1),
         'N20'  : mask_sizer_N20(nw1),
         'N30i' : mask_sizer_F30i(nw1, nd1)
-      }
+      };
       updateMaskSizeRecommend(mask_sizes_v1, "mask-size-recommend", 1);
 
 
@@ -811,46 +820,53 @@ async function run() {
       // Head measurements v3 - Same as v2, but with projections onto head planes
       // ------------------------------------------------------------------------
       
-      let noseWidth = getNoseWidth(scaledMesh, headPlanes);
-      let noseDepth = getNoseDepth(scaledMesh, headPlanes); // STILL NEEDS WORK. See below
-      let faceWidth = getFaceWidth(scaledMesh, headPlanes);
-      console.log('Nose width = ' + (noseWidth * irisMeasures.scale).toFixed(1));
-      console.log('Nose depth = ' + (noseDepth * irisMeasures.scale).toFixed(1));
-      console.log('Face width = ' + (faceWidth * irisMeasures.scale).toFixed(1));
+      let scaleFactor = irisMeasures != null ? irisMeasures.scale : 1.0;
+      scaleFactor *= scaleFactorv3;
+      let noseWidth = getNoseWidth(scaledMesh, headPlanes, scaleFactor);
+      let faceWidth = getFaceWidth(scaledMesh, headPlanes, scaleFactor);
+      let noseDepth = getNoseDepth(scaledMesh, headPlanes, scaleFactor);
 
-      // STILL NEED WORK
-      // Needs to be a measurement in 1 coordinate direction only
-      //let noseDepth = calculateNoseDepth(scaledMesh, headPlanes.median);
-      let faceHeight = calculateFaceHeight(scaledMesh, headPlanes.frontal);
-      
-      let noseDepthDiag = Math.sqrt(Math.pow(noseWidth/2.0,2) + Math.pow(noseDepth,2));
-      
+      let noseDepthDiag = noseDepth;
+      if (noseDepth) {
+        noseDepthDiag = Math.sqrt(Math.pow(noseWidth/2.0,2) + Math.pow(noseDepth,2));
+      }
+
+      let faceHeight    = 0;
       let headMeasuresv3 = {
         'noseWidth'  : noseWidth,
         'noseDepth'  : noseDepthDiag,
         'faceHeight' : faceHeight,
         'faceWidth'  : faceWidth
       }
-      // Scale the values with iris diameter
-      if (irisMeasures) {
-        for (const [key, value] of Object.entries(headMeasuresv3)) {
-          headMeasuresv3[key] = value * irisMeasures.scale * scaleFactorv3;
-        }
-      }
       // Update html with head measures and iris measures
-      //updateHeadMeasureValues(headMeasuresv3, "unfiltered", 3);
+      updateHeadMeasureValues(headMeasuresv3, "unfiltered", 3);
       
       // Update time averaged 
       for (const [key, value] of Object.entries(headMeasuresv3)) {
-        movingAverage_headMeasuresv3[key].update(value);
+        if (value != null) {
+          movingAverage_headMeasuresv3[key].update(value);
+        }
       }
       let filtered_v3 = {
-        'noseWidth'  : movingAverage_headMeasuresv3.noseWidth.average(),
+        'noseWidth'  : movingAverage_headMeasuresv3.noseWidth.average(), 
         'noseDepth'  : movingAverage_headMeasuresv3.noseDepth.average(),
-        'faceHeight' : movingAverage_headMeasuresv3.faceHeight.average(),
-        'faceWidth'  : movingAverage_headMeasuresv3.faceWidth.average()
+        'faceHeight' : movingAverage_headMeasuresv2.faceHeight.average(), // Use v2
+        'faceWidth'  : movingAverage_headMeasuresv2.faceWidth.average()   // Use v2
       }
-      //updateHeadMeasureValues(filtered_v3, "filtered", 3);
+      updateHeadMeasureValues(filtered_v3, "filtered", 3);
+
+      // Add mask size recommendation
+      let fh3 = movingAverage_headMeasuresv2.faceHeight.average(); // Use v2
+      let nw3 = movingAverage_headMeasuresv3.noseWidth.average();  
+      let nd3 = movingAverage_headMeasuresv3.noseDepth.average();
+      let mask_sizes_v3 = {
+        'F20'  : mask_sizer_F20(fh3),
+        'F30'  : mask_sizer_F30(nw3, nd3),
+        'F30i' : mask_sizer_F30i(nw3, nd3),
+        'N20'  : mask_sizer_N20(nw3),
+        'N30i' : mask_sizer_F30i(nw3, nd3)
+      }
+      updateMaskSizeRecommend(mask_sizes_v3, "mask-size-recommend", 3);        
     });
 
     // Show the scatter plot
