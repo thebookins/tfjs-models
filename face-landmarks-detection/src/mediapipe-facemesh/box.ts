@@ -17,7 +17,7 @@
 
 import * as tf from '@tensorflow/tfjs-core';
 
-import {Coord2D, Coords3D} from './util';
+import { Coord2D, Coords3D } from './util';
 
 // The facial bounding box.
 export type Box = {
@@ -28,11 +28,11 @@ export type Box = {
 
 export function scaleBoxCoordinates(box: Box, factor: Coord2D): Box {
   const startPoint: Coord2D =
-      [box.startPoint[0] * factor[0], box.startPoint[1] * factor[1]];
+    [box.startPoint[0] * factor[0], box.startPoint[1] * factor[1]];
   const endPoint: Coord2D =
-      [box.endPoint[0] * factor[0], box.endPoint[1] * factor[1]];
+    [box.endPoint[0] * factor[0], box.endPoint[1] * factor[1]];
 
-  return {startPoint, endPoint};
+  return { startPoint, endPoint };
 }
 
 export function getBoxSize(box: Box): Coord2D {
@@ -50,7 +50,7 @@ export function getBoxCenter(box: Box): Coord2D {
 }
 
 export function cutBoxFromImageAndResize(
-    box: Box, image: tf.Tensor4D, cropSize: Coord2D): tf.Tensor4D {
+  box: Box, image: tf.Tensor4D, cropSize: Coord2D): tf.Tensor4D {
   const h = image.shape[1];
   const w = image.shape[2];
 
@@ -59,6 +59,7 @@ export function cutBoxFromImageAndResize(
     box.endPoint[0] / w
   ]];
 
+  // NOTE (PD): this changes the aspect ratio (rectangular to square)
   return tf.image.cropAndResize(image, boxes, [0], cropSize);
 }
 
@@ -74,11 +75,11 @@ export function enlargeBox(box: Box, factor = 1.5): Box {
 
   const newHalfSize = [factor * size[0] / 2, factor * size[1] / 2];
   const startPoint: Coord2D =
-      [center[0] - newHalfSize[0], center[1] - newHalfSize[1]];
+    [center[0] - newHalfSize[0], center[1] - newHalfSize[1]];
   const endPoint: Coord2D =
-      [center[0] + newHalfSize[0], center[1] + newHalfSize[1]];
+    [center[0] + newHalfSize[0], center[1] + newHalfSize[1]];
 
-  return {startPoint, endPoint, landmarks: box.landmarks};
+  return { startPoint, endPoint, landmarks: box.landmarks };
 }
 
 /**
@@ -94,9 +95,9 @@ export function squarifyBox(box: Box): Box {
 
   const halfSize = maxEdge / 2;
   const startPoint: [number, number] =
-      [centers[0] - halfSize, centers[1] - halfSize];
+    [centers[0] - halfSize, centers[1] - halfSize];
   const endPoint: [number, number] =
-      [centers[0] + halfSize, centers[1] + halfSize];
+    [centers[0] + halfSize, centers[1] + halfSize];
 
-  return {startPoint, endPoint, landmarks: box.landmarks};
+  return { startPoint, endPoint, landmarks: box.landmarks };
 }
