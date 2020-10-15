@@ -16,14 +16,18 @@
     "@tensorflow/tfjs-core": "^2.1.0",
     "browserify-fs": "^1.0.0",
     "csv-writer": "^1.6.0",
+    "express": "^4.17.1",
+    "socket.io": "^2.3.0",
     "stats.js": "^0.17.0",
-    "three": "^0.121.1"
+    "three": "^0.121.1",
+    "uuid": "^8.3.1"
   },
   "scripts": {
     "watch": "cross-env NODE_ENV=development parcel index.html --no-hmr --target browser",
     "build": "cross-env NODE_ENV=production parcel build index.html --target browser --public-url ./",
     "lint": "eslint .",
-    "link-local": "yalc link @tensorflow-models/facemesh"
+    "link-local": "yalc link @tensorflow-models/facemesh",
+    "start": "node server.js"
   },
   "browser": {
     "crypto": false

@@ -20,7 +20,7 @@ limitations under the License.
 <!-- Load scatter-gl.js -->
 <script src="https://cdn.jsdelivr.net/npm/scatter-gl@0.0.1/lib/scatter-gl.min.js"></script>
 <style>
-  
+
   /*
   .canvas-wrapper, #scatter-gl-container {
     display: inline-block;
@@ -30,7 +30,7 @@ limitations under the License.
   .canvas-wrapper, #measurements {
     display: inline-block;
     vertical-align: top;
-  } 
+  }
 
   .canvas-wrapper {
     padding: 10px;
@@ -147,9 +147,9 @@ limitations under the License.
             <td></td>
             <td></td>
             <td></td>
-          </tr>          
-          <caption>Table 1 - Recommended mask size for each mask type</caption>                      
-        </table>      
+          </tr>
+          <caption>Table 1 - Recommended mask size for each mask type</caption>
+        </table>
 
         <table id="filtered" class="tbl">
           <tr>
@@ -182,7 +182,7 @@ limitations under the License.
             <td></td>
             <td></td>
           </tr>
-          <caption>Table 2 - Filtered data using moving average of last 50 values</caption>                      
+          <caption>Table 2 - Filtered data using moving average of last 50 values</caption>
         </table>
 
         <table id="unfiltered" class="tbl">
@@ -216,8 +216,8 @@ limitations under the License.
             <td></td>
             <td></td>
           </tr>
-          <caption>Table 3 - Unfiltered data</caption>                      
-        </table>        
+          <caption>Table 3 - Unfiltered data</caption>
+        </table>
 
       </div>
       <!--<div id="scatter-gl-container"></div>-->
@@ -225,4 +225,7 @@ limitations under the License.
   </div>
 </body>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/dat-gui/0.7.6/dat.gui.min.js"></script>
+<!--socket IO stuff-->
+<script src="http://localhost:8080/socket.io/socket.io.js"></script>
+<!--<script src="../node_modules/socket.io-client/dist/socket.io.js"></script>-->
 <script src="index.js"></script>
