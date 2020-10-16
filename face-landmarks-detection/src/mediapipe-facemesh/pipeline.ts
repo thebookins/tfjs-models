@@ -265,9 +265,6 @@ export class Pipeline {
         this.regionsOfInterest = [];
         return null;
       }
-
-      [arr[0], arr[1]] = [arr[1], arr[0]];
-
       const scaledBoxes =
         boxes.map((prediction: blazeface.BlazeFacePrediction): Box => {
           const predictionBoxCPU = {
