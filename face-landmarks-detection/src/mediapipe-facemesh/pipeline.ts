@@ -133,10 +133,10 @@ export class Pipeline {
     rotationMatrix: TransformationMatrix) {
     const boxSize =
       getBoxSize({ startPoint: box.startPoint, endPoint: box.endPoint });
-    console.log(`box size = ${boxSize}`)
+    //    console.log(`box size = ${boxSize}`)
     const scaleFactor =
       [boxSize[0] / this.meshWidth, boxSize[1] / this.meshHeight];
-    console.log(`scaleFactor = ${scaleFactor}`)
+    //    console.log(`scaleFactor = ${scaleFactor}`)
 
     const coordsScaled = rawCoords.map(
       coord => ([
@@ -259,7 +259,7 @@ export class Pipeline {
         await this.boundingBoxDetector.getBoundingBoxes(
           input, returnTensors, annotateFace);
 
-      console.log(`scaleFactor = ${JSON.stringify(scaleFactor)}`);
+      //      console.log(`scaleFactor = ${JSON.stringify(scaleFactor)}`);
 
       if (boxes.length === 0) {
         this.regionsOfInterest = [];
@@ -268,8 +268,8 @@ export class Pipeline {
 
       const scaledBoxes =
         boxes.map((prediction: blazeface.BlazeFacePrediction): Box => {
-          console.log(`prediction.box.startPoint = ${prediction.box.startPoint}`)
-          console.log(`reversed = ${tf.reverse(prediction.box.startPoint)}`)
+          //console.log(`prediction.box.startPoint = ${prediction.box.startPoint}`)
+          //console.log(`reversed = ${tf.reverse(prediction.box.startPoint)}`)
 
           const predictionBoxCPU = {
             startPoint: tf.reverse(prediction.box.startPoint).squeeze().arraySync() as
@@ -342,9 +342,9 @@ export class Pipeline {
         }
 
         const boxCPU = { startPoint: box.startPoint, endPoint: box.endPoint };
-        console.log(`boxCPU = ${JSON.stringify(boxCPU)}`)
-        console.log(`meshHeight = ${this.meshHeight}`)
-        console.log(`meshWidth = ${this.meshWidth}`)
+        //console.log(`boxCPU = ${JSON.stringify(boxCPU)}`)
+        //console.log(`meshHeight = ${this.meshHeight}`)
+        //console.log(`meshWidth = ${this.meshWidth}`)
         const face: tf.Tensor4D =
           cutBoxFromImageAndResize(boxCPU, rotatedImage, [
             this.meshHeight, this.meshWidth
@@ -358,7 +358,7 @@ export class Pipeline {
 
         const coordsReshaped: tf.Tensor2D = tf.reshape(coords, [-1, 3]);
         let rawCoords = coordsReshaped.arraySync() as Coords3D;
-        //console.log(`rawCoords = ${JSON.stringify(rawCoords)}`);
+        console.log(`rawCoords = ${JSON.stringify(rawCoords)}`);
 
         if (predictIrises) {
           const { box: leftEyeBox, boxSize: leftEyeBoxSize, crop: leftEyeCrop } =
