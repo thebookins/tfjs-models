@@ -254,6 +254,7 @@ export class Pipeline {
     if (this.shouldUpdateRegionsOfInterest()) {
       const returnTensors = false;
       const annotateFace = true;
+      // boxes is y, x; scaleFactor is x, y
       const { boxes, scaleFactor } =
         await this.boundingBoxDetector.getBoundingBoxes(
           input, returnTensors, annotateFace);
@@ -265,12 +266,15 @@ export class Pipeline {
         return null;
       }
 
+      [arr[0], arr[1]] = [arr[1], arr[0]];
+
       const scaledBoxes =
         boxes.map((prediction: blazeface.BlazeFacePrediction): Box => {
           const predictionBoxCPU = {
-            startPoint: prediction.box.startPoint.squeeze().arraySync() as
-              Coord2D,
-            endPoint: prediction.box.endPoint.squeeze().arraySync() as Coord2D
+            startPoint: prediction.box.startPoint.squeeze().arraySync()
+              .reverse() as Coord2D,
+            endPoint: prediction.box.endPoint.squeeze().arraySync()
+              .reverse() as Coord2D
           };
 
           const scaledBox =
