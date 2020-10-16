@@ -52,7 +52,9 @@ export function getBoxCenter(box: Box): Coord2D {
 export function cutBoxFromImageAndResize(
   box: Box, image: tf.Tensor4D, cropSize: Coord2D): tf.Tensor4D {
   const h = image.shape[1];
+  console.log(`h = ${h}`);
   const w = image.shape[2];
+  console.log(`w = ${w}`);
 
   const boxes = [[
     box.startPoint[1] / h, box.startPoint[0] / w, box.endPoint[1] / h,
