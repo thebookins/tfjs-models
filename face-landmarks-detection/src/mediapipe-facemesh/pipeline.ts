@@ -337,7 +337,7 @@ export class Pipeline {
         }
 
         const boxCPU = { startPoint: box.startPoint, endPoint: box.endPoint };
-        console.log(`boxCPU = ${boxCPU}`)
+        console.log(`boxCPU = ${JSON.stringify(boxCPU)}`)
         console.log(`meshHeight = ${this.meshHeight}`)
         console.log(`meshWidth = ${this.meshWidth}`)
         const face: tf.Tensor4D =
