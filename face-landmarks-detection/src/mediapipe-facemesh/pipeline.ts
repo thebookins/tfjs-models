@@ -265,244 +265,245 @@ export class Pipeline {
         this.regionsOfInterest = [];
         return null;
       }
+
       const scaledBoxes =
         boxes.map((prediction: blazeface.BlazeFacePrediction): Box => {
           const predictionBoxCPU = {
-            startPoint: (prediction.box.startPoint.squeeze().arraySync()
-              as Coord2D).reverse(),
-        endPoint: (prediction.box.endPoint.squeeze().arraySync()
-      as Coord2D).reverse()
-    };
+            startPoint: tf.reverse(prediction.box.startPoint).squeeze().arraySync() as
+              Coord2D,
+            endPoint: tf.reverse(prediction.box.endPoint).squeeze().arraySync() as
+              Coord2D
+          };
 
-    const scaledBox =
-      scaleBoxCoordinates(predictionBoxCPU, scaleFactor as Coord2D);
-    const enlargedBox = enlargeBox(scaledBox);
-    return {
-      ...enlargedBox,
-      landmarks: prediction.landmarks.arraySync() as Coords3D
-    };
-  });
+          const scaledBox =
+            scaleBoxCoordinates(predictionBoxCPU, scaleFactor as Coord2D);
+          const enlargedBox = enlargeBox(scaledBox);
+          return {
+            ...enlargedBox,
+            landmarks: prediction.landmarks.arraySync() as Coords3D
+          };
+        });
 
-  boxes.forEach((box: {
-    startPoint: tf.Tensor2D,
-    startEndTensor: tf.Tensor2D,
-    endPoint: tf.Tensor2D
-  }) => {
-    if (box != null && box.startPoint != null) {
-      box.startEndTensor.dispose();
-      box.startPoint.dispose();
-      box.endPoint.dispose();
-    }
-  });
+      boxes.forEach((box: {
+        startPoint: tf.Tensor2D,
+        startEndTensor: tf.Tensor2D,
+        endPoint: tf.Tensor2D
+      }) => {
+        if (box != null && box.startPoint != null) {
+          box.startEndTensor.dispose();
+          box.startPoint.dispose();
+          box.endPoint.dispose();
+        }
+      });
 
-this.updateRegionsOfInterest(scaledBoxes);
-this.runsWithoutFaceDetector = 0;
+      this.updateRegionsOfInterest(scaledBoxes);
+      this.runsWithoutFaceDetector = 0;
     } else {
-  this.runsWithoutFaceDetector++;
-}
-
-return tf.tidy(() => {
-  return this.regionsOfInterest.map((box, i) => {
-    let angle = 0;
-    // The facial bounding box landmarks could come either from blazeface
-    // (if we are using a fresh box), or from the mesh model (if we are
-    // reusing an old box).
-    const boxLandmarksFromMeshModel =
-      box.landmarks.length >= LANDMARKS_COUNT;
-    let [indexOfMouth, indexOfForehead] =
-      MESH_KEYPOINTS_LINE_OF_SYMMETRY_INDICES;
-
-    if (boxLandmarksFromMeshModel === false) {
-      [indexOfMouth, indexOfForehead] =
-        BLAZEFACE_KEYPOINTS_LINE_OF_SYMMETRY_INDICES;
+      this.runsWithoutFaceDetector++;
     }
 
-    angle = computeRotation(
-      box.landmarks[indexOfMouth], box.landmarks[indexOfForehead]);
+    return tf.tidy(() => {
+      return this.regionsOfInterest.map((box, i) => {
+        let angle = 0;
+        // The facial bounding box landmarks could come either from blazeface
+        // (if we are using a fresh box), or from the mesh model (if we are
+        // reusing an old box).
+        const boxLandmarksFromMeshModel =
+          box.landmarks.length >= LANDMARKS_COUNT;
+        let [indexOfMouth, indexOfForehead] =
+          MESH_KEYPOINTS_LINE_OF_SYMMETRY_INDICES;
 
-    //console.log(`angle = ${angle}`);
+        if (boxLandmarksFromMeshModel === false) {
+          [indexOfMouth, indexOfForehead] =
+            BLAZEFACE_KEYPOINTS_LINE_OF_SYMMETRY_INDICES;
+        }
 
-    const faceCenter =
-      getBoxCenter({ startPoint: box.startPoint, endPoint: box.endPoint });
-    const faceCenterNormalized: Coord2D =
-      [faceCenter[0] / input.shape[2], faceCenter[1] / input.shape[1]];
+        angle = computeRotation(
+          box.landmarks[indexOfMouth], box.landmarks[indexOfForehead]);
 
-    //console.log(`faceCenterNormalized = ${JSON.stringify(faceCenterNormalized)}`);
+        //console.log(`angle = ${angle}`);
 
-    let rotatedImage = input;
-    let rotationMatrix = IDENTITY_MATRIX;
-    if (angle !== 0) {
-      rotatedImage =
-        tf.image.rotateWithOffset(input, angle, 0, faceCenterNormalized);
-      rotationMatrix = buildRotationMatrix(-angle, faceCenter);
-    }
+        const faceCenter =
+          getBoxCenter({ startPoint: box.startPoint, endPoint: box.endPoint });
+        const faceCenterNormalized: Coord2D =
+          [faceCenter[0] / input.shape[2], faceCenter[1] / input.shape[1]];
 
-    const boxCPU = { startPoint: box.startPoint, endPoint: box.endPoint };
-    console.log(`boxCPU = ${JSON.stringify(boxCPU)}`)
-    console.log(`meshHeight = ${this.meshHeight}`)
-    console.log(`meshWidth = ${this.meshWidth}`)
-    const face: tf.Tensor4D =
-      cutBoxFromImageAndResize(boxCPU, rotatedImage, [
-        this.meshHeight, this.meshWidth
-      ]).div(255);
+        //console.log(`faceCenterNormalized = ${JSON.stringify(faceCenterNormalized)}`);
 
-    // The first returned tensor represents facial contours, which are
-    // included in the coordinates.
-    const [, flag, coords] =
-      this.meshDetector.predict(
-        face) as [tf.Tensor, tf.Tensor2D, tf.Tensor2D];
+        let rotatedImage = input;
+        let rotationMatrix = IDENTITY_MATRIX;
+        if (angle !== 0) {
+          rotatedImage =
+            tf.image.rotateWithOffset(input, angle, 0, faceCenterNormalized);
+          rotationMatrix = buildRotationMatrix(-angle, faceCenter);
+        }
 
-    const coordsReshaped: tf.Tensor2D = tf.reshape(coords, [-1, 3]);
-    let rawCoords = coordsReshaped.arraySync() as Coords3D;
-    //console.log(`rawCoords = ${JSON.stringify(rawCoords)}`);
+        const boxCPU = { startPoint: box.startPoint, endPoint: box.endPoint };
+        console.log(`boxCPU = ${JSON.stringify(boxCPU)}`)
+        console.log(`meshHeight = ${this.meshHeight}`)
+        console.log(`meshWidth = ${this.meshWidth}`)
+        const face: tf.Tensor4D =
+          cutBoxFromImageAndResize(boxCPU, rotatedImage, [
+            this.meshHeight, this.meshWidth
+          ]).div(255);
 
-    if (predictIrises) {
-      const { box: leftEyeBox, boxSize: leftEyeBoxSize, crop: leftEyeCrop } =
-        this.getEyeBox(
-          rawCoords, face, LEFT_EYE_BOUNDS[0], LEFT_EYE_BOUNDS[1],
-          true);
-      const {
-        box: rightEyeBox,
-        boxSize: rightEyeBoxSize,
-        crop: rightEyeCrop
-      } =
-        this.getEyeBox(
-          rawCoords, face, RIGHT_EYE_BOUNDS[0], RIGHT_EYE_BOUNDS[1]);
+        // The first returned tensor represents facial contours, which are
+        // included in the coordinates.
+        const [, flag, coords] =
+          this.meshDetector.predict(
+            face) as [tf.Tensor, tf.Tensor2D, tf.Tensor2D];
 
-      const eyePredictions =
-        (this.irisModel.predict(
-          tf.concat([leftEyeCrop, rightEyeCrop]))) as tf.Tensor4D;
-      const eyePredictionsData = eyePredictions.dataSync() as Float32Array;
+        const coordsReshaped: tf.Tensor2D = tf.reshape(coords, [-1, 3]);
+        let rawCoords = coordsReshaped.arraySync() as Coords3D;
+        //console.log(`rawCoords = ${JSON.stringify(rawCoords)}`);
 
-      const leftEyeData =
-        eyePredictionsData.slice(0, IRIS_NUM_COORDINATES * 3);
-      const { rawCoords: leftEyeRawCoords, iris: leftIrisRawCoords } =
-        this.getEyeCoords(leftEyeData, leftEyeBox, leftEyeBoxSize, true);
+        if (predictIrises) {
+          const { box: leftEyeBox, boxSize: leftEyeBoxSize, crop: leftEyeCrop } =
+            this.getEyeBox(
+              rawCoords, face, LEFT_EYE_BOUNDS[0], LEFT_EYE_BOUNDS[1],
+              true);
+          const {
+            box: rightEyeBox,
+            boxSize: rightEyeBoxSize,
+            crop: rightEyeCrop
+          } =
+            this.getEyeBox(
+              rawCoords, face, RIGHT_EYE_BOUNDS[0], RIGHT_EYE_BOUNDS[1]);
 
-      //console.log(`leftIrisRawCoords = ${JSON.stringify(leftIrisRawCoords)}`);
+          const eyePredictions =
+            (this.irisModel.predict(
+              tf.concat([leftEyeCrop, rightEyeCrop]))) as tf.Tensor4D;
+          const eyePredictionsData = eyePredictions.dataSync() as Float32Array;
+
+          const leftEyeData =
+            eyePredictionsData.slice(0, IRIS_NUM_COORDINATES * 3);
+          const { rawCoords: leftEyeRawCoords, iris: leftIrisRawCoords } =
+            this.getEyeCoords(leftEyeData, leftEyeBox, leftEyeBoxSize, true);
+
+          //console.log(`leftIrisRawCoords = ${JSON.stringify(leftIrisRawCoords)}`);
 
 
-      const rightEyeData =
-        eyePredictionsData.slice(IRIS_NUM_COORDINATES * 3);
-      const { rawCoords: rightEyeRawCoords, iris: rightIrisRawCoords } =
-        this.getEyeCoords(rightEyeData, rightEyeBox, rightEyeBoxSize);
+          const rightEyeData =
+            eyePredictionsData.slice(IRIS_NUM_COORDINATES * 3);
+          const { rawCoords: rightEyeRawCoords, iris: rightIrisRawCoords } =
+            this.getEyeCoords(rightEyeData, rightEyeBox, rightEyeBoxSize);
 
-      //console.log(`rightIrisRawCoords = ${JSON.stringify(rightIrisRawCoords)}`);
+          //console.log(`rightIrisRawCoords = ${JSON.stringify(rightIrisRawCoords)}`);
 
-      const leftToRightEyeDepthDifference =
-        this.getLeftToRightEyeDepthDifference(rawCoords);
-      if (Math.abs(leftToRightEyeDepthDifference) <
-        30) {  // User is looking straight ahead.
-        replaceRawCoordinates(rawCoords, leftEyeRawCoords, 'left');
-        replaceRawCoordinates(rawCoords, rightEyeRawCoords, 'right');
-      } else if (leftToRightEyeDepthDifference < 1) {  // User is looking
-        // towards the
-        // right.
-        // If the user is looking to the left or to the right, the iris
-        // coordinates tend to diverge too much from the mesh coordinates
-        // for them to be merged. So we only update a single contour line
-        // above and below the eye.
-        replaceRawCoordinates(
-          rawCoords, leftEyeRawCoords, 'left',
-          ['EyeUpper0', 'EyeLower0']);
-      } else {  // User is looking towards the left.
-        replaceRawCoordinates(
-          rawCoords, rightEyeRawCoords, 'right',
-          ['EyeUpper0', 'EyeLower0']);
+          const leftToRightEyeDepthDifference =
+            this.getLeftToRightEyeDepthDifference(rawCoords);
+          if (Math.abs(leftToRightEyeDepthDifference) <
+            30) {  // User is looking straight ahead.
+            replaceRawCoordinates(rawCoords, leftEyeRawCoords, 'left');
+            replaceRawCoordinates(rawCoords, rightEyeRawCoords, 'right');
+          } else if (leftToRightEyeDepthDifference < 1) {  // User is looking
+            // towards the
+            // right.
+            // If the user is looking to the left or to the right, the iris
+            // coordinates tend to diverge too much from the mesh coordinates
+            // for them to be merged. So we only update a single contour line
+            // above and below the eye.
+            replaceRawCoordinates(
+              rawCoords, leftEyeRawCoords, 'left',
+              ['EyeUpper0', 'EyeLower0']);
+          } else {  // User is looking towards the left.
+            replaceRawCoordinates(
+              rawCoords, rightEyeRawCoords, 'right',
+              ['EyeUpper0', 'EyeLower0']);
+          }
+
+          const adjustedLeftIrisCoords =
+            this.getAdjustedIrisCoords(rawCoords, leftIrisRawCoords, 'left');
+          const adjustedRightIrisCoords = this.getAdjustedIrisCoords(
+            rawCoords, rightIrisRawCoords, 'right');
+          rawCoords = rawCoords.concat(adjustedLeftIrisCoords)
+            .concat(adjustedRightIrisCoords);
+        }
+
+        const transformedCoordsData =
+          this.transformRawCoords(rawCoords, box, angle, rotationMatrix);
+        const transformedCoords = tf.tensor2d(transformedCoordsData);
+
+        const landmarksBox = enlargeBox(
+          this.calculateLandmarksBoundingBox(transformedCoordsData));
+        this.regionsOfInterest[i] = {
+          ...landmarksBox,
+          landmarks: transformedCoords.arraySync() as Coords3D
+        };
+
+        const prediction: Prediction = {
+          coords: tf.tensor2d(rawCoords, [rawCoords.length, 3]),
+          scaledCoords: transformedCoords,
+          box: landmarksBox,
+          flag: flag.squeeze()
+        };
+
+        return prediction;
+      });
+    });
+  }
+
+  // Updates regions of interest if the intersection over union between
+  // the incoming and previous regions falls below a threshold.
+  updateRegionsOfInterest(boxes: Box[]) {
+    for (let i = 0; i < boxes.length; i++) {
+      const box = boxes[i];
+      const previousBox = this.regionsOfInterest[i];
+      let iou = 0;
+
+      if (previousBox && previousBox.startPoint) {
+        const [boxStartX, boxStartY] = box.startPoint;
+        const [boxEndX, boxEndY] = box.endPoint;
+        const [previousBoxStartX, previousBoxStartY] = previousBox.startPoint;
+        const [previousBoxEndX, previousBoxEndY] = previousBox.endPoint;
+
+        const xStartMax = Math.max(boxStartX, previousBoxStartX);
+        const yStartMax = Math.max(boxStartY, previousBoxStartY);
+        const xEndMin = Math.min(boxEndX, previousBoxEndX);
+        const yEndMin = Math.min(boxEndY, previousBoxEndY);
+
+        const intersection = (xEndMin - xStartMax) * (yEndMin - yStartMax);
+        const boxArea = (boxEndX - boxStartX) * (boxEndY - boxStartY);
+        const previousBoxArea = (previousBoxEndX - previousBoxStartX) *
+          (previousBoxEndY - boxStartY);
+        iou = intersection / (boxArea + previousBoxArea - intersection);
       }
 
-      const adjustedLeftIrisCoords =
-        this.getAdjustedIrisCoords(rawCoords, leftIrisRawCoords, 'left');
-      const adjustedRightIrisCoords = this.getAdjustedIrisCoords(
-        rawCoords, rightIrisRawCoords, 'right');
-      rawCoords = rawCoords.concat(adjustedLeftIrisCoords)
-        .concat(adjustedRightIrisCoords);
+      if (iou < UPDATE_REGION_OF_INTEREST_IOU_THRESHOLD) {
+        this.regionsOfInterest[i] = box;
+      }
     }
 
-    const transformedCoordsData =
-      this.transformRawCoords(rawCoords, box, angle, rotationMatrix);
-    const transformedCoords = tf.tensor2d(transformedCoordsData);
-
-    const landmarksBox = enlargeBox(
-      this.calculateLandmarksBoundingBox(transformedCoordsData));
-    this.regionsOfInterest[i] = {
-      ...landmarksBox,
-      landmarks: transformedCoords.arraySync() as Coords3D
-    };
-
-    const prediction: Prediction = {
-      coords: tf.tensor2d(rawCoords, [rawCoords.length, 3]),
-      scaledCoords: transformedCoords,
-      box: landmarksBox,
-      flag: flag.squeeze()
-    };
-
-    return prediction;
-  });
-});
+    this.regionsOfInterest = this.regionsOfInterest.slice(0, boxes.length);
   }
 
-// Updates regions of interest if the intersection over union between
-// the incoming and previous regions falls below a threshold.
-updateRegionsOfInterest(boxes: Box[]) {
-  for (let i = 0; i < boxes.length; i++) {
-    const box = boxes[i];
-    const previousBox = this.regionsOfInterest[i];
-    let iou = 0;
-
-    if (previousBox && previousBox.startPoint) {
-      const [boxStartX, boxStartY] = box.startPoint;
-      const [boxEndX, boxEndY] = box.endPoint;
-      const [previousBoxStartX, previousBoxStartY] = previousBox.startPoint;
-      const [previousBoxEndX, previousBoxEndY] = previousBox.endPoint;
-
-      const xStartMax = Math.max(boxStartX, previousBoxStartX);
-      const yStartMax = Math.max(boxStartY, previousBoxStartY);
-      const xEndMin = Math.min(boxEndX, previousBoxEndX);
-      const yEndMin = Math.min(boxEndY, previousBoxEndY);
-
-      const intersection = (xEndMin - xStartMax) * (yEndMin - yStartMax);
-      const boxArea = (boxEndX - boxStartX) * (boxEndY - boxStartY);
-      const previousBoxArea = (previousBoxEndX - previousBoxStartX) *
-        (previousBoxEndY - boxStartY);
-      iou = intersection / (boxArea + previousBoxArea - intersection);
-    }
-
-    if (iou < UPDATE_REGION_OF_INTEREST_IOU_THRESHOLD) {
-      this.regionsOfInterest[i] = box;
+  clearRegionOfInterest(index: number) {
+    if (this.regionsOfInterest[index] != null) {
+      this.regionsOfInterest = [
+        ...this.regionsOfInterest.slice(0, index),
+        ...this.regionsOfInterest.slice(index + 1)
+      ];
     }
   }
 
-  this.regionsOfInterest = this.regionsOfInterest.slice(0, boxes.length);
-}
+  shouldUpdateRegionsOfInterest(): boolean {
+    const roisCount = this.regionsOfInterest.length;
+    const noROIs = roisCount === 0;
 
-clearRegionOfInterest(index: number) {
-  if (this.regionsOfInterest[index] != null) {
-    this.regionsOfInterest = [
-      ...this.regionsOfInterest.slice(0, index),
-      ...this.regionsOfInterest.slice(index + 1)
-    ];
-  }
-}
+    if (this.maxFaces === 1 || noROIs) {
+      return noROIs;
+    }
 
-shouldUpdateRegionsOfInterest(): boolean {
-  const roisCount = this.regionsOfInterest.length;
-  const noROIs = roisCount === 0;
-
-  if (this.maxFaces === 1 || noROIs) {
-    return noROIs;
+    return roisCount !== this.maxFaces &&
+      this.runsWithoutFaceDetector >= this.maxContinuousChecks;
   }
 
-  return roisCount !== this.maxFaces &&
-    this.runsWithoutFaceDetector >= this.maxContinuousChecks;
-}
+  calculateLandmarksBoundingBox(landmarks: Coords3D): Box {
+    const xs = landmarks.map(d => d[0]);
+    const ys = landmarks.map(d => d[1]);
 
-calculateLandmarksBoundingBox(landmarks: Coords3D): Box {
-  const xs = landmarks.map(d => d[0]);
-  const ys = landmarks.map(d => d[1]);
-
-  const startPoint: Coord2D = [Math.min(...xs), Math.min(...ys)];
-  const endPoint: Coord2D = [Math.max(...xs), Math.max(...ys)];
-  return { startPoint, endPoint };
-}
+    const startPoint: Coord2D = [Math.min(...xs), Math.min(...ys)];
+    const endPoint: Coord2D = [Math.max(...xs), Math.max(...ys)];
+    return { startPoint, endPoint };
+  }
 }
