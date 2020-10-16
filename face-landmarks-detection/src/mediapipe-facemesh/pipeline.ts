@@ -278,6 +278,8 @@ export class Pipeline {
               Coord2D
           };
 
+          console.log(`predictionBoxCPU = ${JSON.stringify(predictionBoxCPU)}`)
+
           const scaledBox =
             scaleBoxCoordinates(predictionBoxCPU, scaleFactor as Coord2D);
           const enlargedBox = enlargeBox(scaledBox);
@@ -358,7 +360,7 @@ export class Pipeline {
 
         const coordsReshaped: tf.Tensor2D = tf.reshape(coords, [-1, 3]);
         let rawCoords = coordsReshaped.arraySync() as Coords3D;
-        console.log(`rawCoords = ${JSON.stringify(rawCoords)}`);
+        //console.log(`rawCoords = ${JSON.stringify(rawCoords)}`);
 
         if (predictIrises) {
           const { box: leftEyeBox, boxSize: leftEyeBoxSize, crop: leftEyeCrop } =
