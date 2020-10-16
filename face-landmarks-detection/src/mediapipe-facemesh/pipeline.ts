@@ -268,6 +268,9 @@ export class Pipeline {
 
       const scaledBoxes =
         boxes.map((prediction: blazeface.BlazeFacePrediction): Box => {
+          console.log(`prediction.box.startPoint = ${prediction.box.startPoint}`)
+          console.log(`reversed = ${tf.reverse(prediction.box.startPoint)}`)
+
           const predictionBoxCPU = {
             startPoint: tf.reverse(prediction.box.startPoint).squeeze().arraySync() as
               Coord2D,
