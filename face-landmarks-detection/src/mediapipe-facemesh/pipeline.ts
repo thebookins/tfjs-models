@@ -272,22 +272,33 @@ export class Pipeline {
           //console.log(`reversed = ${tf.reverse(prediction.box.startPoint)}`)
 
           const predictionBoxCPU = {
-            startPoint: tf.reverse(prediction.box.startPoint).squeeze().arraySync() as
+            startPoint: prediction.box.startPoint.squeeze().arraySync() as
               Coord2D,
-            endPoint: tf.reverse(prediction.box.endPoint).squeeze().arraySync() as
+            endPoint: prediction.box.endPoint.squeeze().arraySync() as
               Coord2D
           };
+          //const predictionBoxCPU = {
+          //  startPoint: tf.reverse(prediction.box.startPoint).squeeze().arraySync() as
+          //    Coord2D,
+          //  endPoint: tf.reverse(prediction.box.endPoint).squeeze().arraySync() as
+          //    Coord2D
+          //};
 
-          console.log(`predictionBoxCPU = ${JSON.stringify(predictionBoxCPU)}`)
+          //console.log(`predictionBoxCPU = ${JSON.stringify(predictionBoxCPU)}`)
 
           const scaledBox =
             scaleBoxCoordinates(predictionBoxCPU, scaleFactor as Coord2D);
+          //require('fs').writeFileSync('scaledBox.json', JSON.stringify(scaledBox));
           const enlargedBox = enlargeBox(scaledBox);
+          //require('fs').writeFileSync('enlargedBox.json', JSON.stringify(enlargedBox));
+          //require('fs').writeFileSync('landmarks.json', JSON.stringify(prediction.landmarks.arraySync() as Coords3D));
           return {
             ...enlargedBox,
             landmarks: prediction.landmarks.arraySync() as Coords3D
           };
         });
+
+
 
       boxes.forEach((box: {
         startPoint: tf.Tensor2D,
@@ -326,7 +337,7 @@ export class Pipeline {
         angle = computeRotation(
           box.landmarks[indexOfMouth], box.landmarks[indexOfForehead]);
 
-        //console.log(`angle = ${angle}`);
+        console.log(`angle = ${angle}`);
 
         const faceCenter =
           getBoxCenter({ startPoint: box.startPoint, endPoint: box.endPoint });
@@ -344,13 +355,18 @@ export class Pipeline {
         }
 
         const boxCPU = { startPoint: box.startPoint, endPoint: box.endPoint };
-        //console.log(`boxCPU = ${JSON.stringify(boxCPU)}`)
+        console.log(`boxCPU = ${JSON.stringify(boxCPU)}`)
         //console.log(`meshHeight = ${this.meshHeight}`)
         //console.log(`meshWidth = ${this.meshWidth}`)
         const face: tf.Tensor4D =
           cutBoxFromImageAndResize(boxCPU, rotatedImage, [
             this.meshHeight, this.meshWidth
           ]).div(255);
+
+        const dataArray = face.arraySync();
+        const serializedString = JSON.stringify(dataArray);
+
+        require('fs').writeFileSync('face.json', serializedString);
 
         // The first returned tensor represents facial contours, which are
         // included in the coordinates.
@@ -361,6 +377,7 @@ export class Pipeline {
         const coordsReshaped: tf.Tensor2D = tf.reshape(coords, [-1, 3]);
         let rawCoords = coordsReshaped.arraySync() as Coords3D;
         //console.log(`rawCoords = ${JSON.stringify(rawCoords)}`);
+        require('fs').writeFileSync('rawCoords.json', rawCoords);
 
         if (predictIrises) {
           const { box: leftEyeBox, boxSize: leftEyeBoxSize, crop: leftEyeCrop } =
