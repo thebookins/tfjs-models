@@ -19,17 +19,17 @@ import * as blazeface from '@tensorflow-models/blazeface';
 import * as tfconv from '@tensorflow/tfjs-converter';
 import * as tf from '@tensorflow/tfjs-core';
 
-import {EstimateFacesConfig, FaceLandmarksPackage, FaceLandmarksPrediction} from '../types';
+import { EstimateFacesConfig, FaceLandmarksPackage, FaceLandmarksPrediction } from '../types';
 
-import {MESH_ANNOTATIONS} from './keypoints';
-import {Pipeline, Prediction} from './pipeline';
-import {Coord2D, Coords3D} from './util';
-import {UV_COORDS} from './uv_coords';
+import { MESH_ANNOTATIONS } from './keypoints';
+import { Pipeline, Prediction } from './pipeline';
+import { Coord2D, Coords3D } from './util';
+import { UV_COORDS } from './uv_coords';
 
 const FACEMESH_GRAPHMODEL_PATH =
-    'https://tfhub.dev/mediapipe/tfjs-model/facemesh/1/default/1';
+  'https://tfhub.dev/mediapipe/tfjs-model/facemesh/1/default/1';
 const IRIS_GRAPHMODEL_PATH =
-    'https://tfhub.dev/mediapipe/tfjs-model/iris/1/default/2';
+  'https://tfhub.dev/mediapipe/tfjs-model/iris/1/default/2';
 const MESH_MODEL_INPUT_WIDTH = 192;
 const MESH_MODEL_INPUT_HEIGHT = 192;
 
@@ -55,19 +55,19 @@ interface AnnotatedPredictionValues extends FaceLandmarksPrediction {
   /** Facial landmark coordinates normalized to input dimensions. */
   scaledMesh: Coords3D;
   /** Annotated keypoints. */
-  annotations?: {[key: string]: Coords3D};
+  annotations?: { [key: string]: Coords3D };
 }
 
 interface AnnotatedPredictionTensors extends FaceLandmarksPrediction {
   faceInViewConfidence: number;
-  boundingBox: {topLeft: tf.Tensor1D, bottomRight: tf.Tensor1D};
+  boundingBox: { topLeft: tf.Tensor1D, bottomRight: tf.Tensor1D };
   mesh: tf.Tensor2D;
   scaledMesh: tf.Tensor2D;
 }
 
 // The object returned by facemesh describing a face found in the input.
 export type AnnotatedPrediction =
-    AnnotatedPredictionValues|AnnotatedPredictionTensors;
+  AnnotatedPredictionValues | AnnotatedPredictionTensors;
 
 /**
  * Load the model.
@@ -95,16 +95,20 @@ export async function load(config: {
   maxContinuousChecks?: number,
   detectionConfidence?: number,
   maxFaces?: number,
+  //inputWidth?: number,
+  //inputHeight?: number,
   iouThreshold?: number,
   scoreThreshold?: number,
   shouldLoadIrisModel?: boolean,
-  modelUrl?: string|tf.io.IOHandler,
-  irisModelUrl?: string|tf.io.IOHandler,
+  modelUrl?: string | tf.io.IOHandler,
+  irisModelUrl?: string | tf.io.IOHandler,
 }): Promise<MediaPipeFaceMesh> {
   const {
     maxContinuousChecks = 5,
     detectionConfidence = 0.9,
     maxFaces = 10,
+    //inputWidth = 640,
+    //inputHeight = 480,
     iouThreshold = 0.3,
     scoreThreshold = 0.75,
     shouldLoadIrisModel = true,
@@ -126,41 +130,41 @@ export async function load(config: {
   }
 
   const faceMesh = new MediaPipeFaceMesh(
-      models[0], models[1], maxContinuousChecks, detectionConfidence, maxFaces,
-      shouldLoadIrisModel ? models[2] : null);
+    models[0], models[1], maxContinuousChecks, detectionConfidence, maxFaces,
+    shouldLoadIrisModel ? models[2] : null);
   return faceMesh;
 }
 
 async function loadDetectorModel(
-    maxFaces: number, iouThreshold: number,
-    scoreThreshold: number): Promise<blazeface.BlazeFaceModel> {
-  return blazeface.load({maxFaces, iouThreshold, scoreThreshold});
+  maxFaces: number, iouThreshold: number,
+  scoreThreshold: number): Promise<blazeface.BlazeFaceModel> {
+  return blazeface.load({ maxFaces, iouThreshold, scoreThreshold });
 }
 
-async function loadMeshModel(modelUrl?: string|
-                             tf.io.IOHandler): Promise<tfconv.GraphModel> {
+async function loadMeshModel(modelUrl?: string |
+  tf.io.IOHandler): Promise<tfconv.GraphModel> {
   if (modelUrl != null) {
     return tfconv.loadGraphModel(modelUrl);
   }
-  return tfconv.loadGraphModel(FACEMESH_GRAPHMODEL_PATH, {fromTFHub: true});
+  return tfconv.loadGraphModel(FACEMESH_GRAPHMODEL_PATH, { fromTFHub: true });
 }
 
-async function loadIrisModel(modelUrl?: string|
-                             tf.io.IOHandler): Promise<tfconv.GraphModel> {
+async function loadIrisModel(modelUrl?: string |
+  tf.io.IOHandler): Promise<tfconv.GraphModel> {
   if (modelUrl != null) {
     return tfconv.loadGraphModel(modelUrl);
   }
-  return tfconv.loadGraphModel(IRIS_GRAPHMODEL_PATH, {fromTFHub: true});
+  return tfconv.loadGraphModel(IRIS_GRAPHMODEL_PATH, { fromTFHub: true });
 }
 
-function getInputTensorDimensions(input: tf.Tensor3D|ImageData|HTMLVideoElement|
-                                  HTMLImageElement|HTMLCanvasElement): Coord2D {
+function getInputTensorDimensions(input: tf.Tensor3D | ImageData | HTMLVideoElement |
+  HTMLImageElement | HTMLCanvasElement): Coord2D {
   return input instanceof tf.Tensor ? [input.shape[0], input.shape[1]] :
-                                      [input.height, input.width];
+    [input.height, input.width];
 }
 
 function flipFaceHorizontal(
-    face: AnnotatedPrediction, imageWidth: number): AnnotatedPrediction {
+  face: AnnotatedPrediction, imageWidth: number): AnnotatedPrediction {
   if (face.mesh instanceof tf.Tensor) {
     const [topLeft, bottomRight, mesh, scaledMesh] = tf.tidy(() => {
       const subtractBasis = tf.tensor1d([imageWidth - 1, 0, 0]);
@@ -170,14 +174,14 @@ function flipFaceHorizontal(
         return [
           tf.concat([
             tf.sub(
-                imageWidth - 1,
-                (face.boundingBox.topLeft as tf.Tensor1D).slice(0, 1)),
+              imageWidth - 1,
+              (face.boundingBox.topLeft as tf.Tensor1D).slice(0, 1)),
             (face.boundingBox.topLeft as tf.Tensor1D).slice(1, 1)
           ]),
           tf.concat([
             tf.sub(
-                imageWidth - 1,
-                (face.boundingBox.bottomRight as tf.Tensor1D).slice(0, 1)),
+              imageWidth - 1,
+              (face.boundingBox.bottomRight as tf.Tensor1D).slice(0, 1)),
             (face.boundingBox.bottomRight as tf.Tensor1D).slice(1, 1)
           ]),
           tf.sub(subtractBasis, face.mesh).mul(multiplyBasis),
@@ -187,7 +191,7 @@ function flipFaceHorizontal(
     });
 
     return Object.assign(
-        {}, face, {boundingBox: {topLeft, bottomRight}, mesh, scaledMesh});
+      {}, face, { boundingBox: { topLeft, bottomRight }, mesh, scaledMesh });
   }
 
   return Object.assign({}, face, {
@@ -219,17 +223,17 @@ export class MediaPipeFaceMesh implements FaceLandmarksPackage {
   private detectionConfidence: number;
 
   constructor(
-      blazeFace: blazeface.BlazeFaceModel, blazeMeshModel: tfconv.GraphModel,
-      maxContinuousChecks: number, detectionConfidence: number,
-      maxFaces: number, irisModel: tfconv.GraphModel|null) {
+    blazeFace: blazeface.BlazeFaceModel, blazeMeshModel: tfconv.GraphModel,
+    maxContinuousChecks: number, detectionConfidence: number,
+    maxFaces: number, irisModel: tfconv.GraphModel | null) {
     this.pipeline = new Pipeline(
-        blazeFace, blazeMeshModel, MESH_MODEL_INPUT_WIDTH,
-        MESH_MODEL_INPUT_HEIGHT, maxContinuousChecks, maxFaces, irisModel);
+      blazeFace, blazeMeshModel, MESH_MODEL_INPUT_WIDTH,
+      MESH_MODEL_INPUT_HEIGHT, maxContinuousChecks, maxFaces, irisModel);
 
     this.detectionConfidence = detectionConfidence;
   }
 
-  static getAnnotations(): {[key: string]: number[]} {
+  static getAnnotations(): { [key: string]: number[] } {
     return MESH_ANNOTATIONS;
   }
 
@@ -256,7 +260,7 @@ export class MediaPipeFaceMesh implements FaceLandmarksPackage {
    * @return An array of AnnotatedPrediction objects.
    */
   async estimateFaces(config: MediaPipeFaceMeshEstimateFacesConfig):
-      Promise<AnnotatedPrediction[]> {
+    Promise<AnnotatedPrediction[]> {
     const {
       returnTensors = false,
       flipHorizontal = false,
@@ -266,9 +270,9 @@ export class MediaPipeFaceMesh implements FaceLandmarksPackage {
 
     if (predictIrises && this.pipeline.irisModel == null) {
       throw new Error(
-          'The iris model was not loaded as part of facemesh. ' +
-          'Please initialize the model with ' +
-          'facemesh.load({shouldLoadIrisModel: true}).');
+        'The iris model was not loaded as part of facemesh. ' +
+        'Please initialize the model with ' +
+        'facemesh.load({shouldLoadIrisModel: true}).');
     }
 
     const [, width] = getInputTensorDimensions(input);
@@ -287,7 +291,7 @@ export class MediaPipeFaceMesh implements FaceLandmarksPackage {
       // TODO(annxingyuan): call tf.enablePackedDepthwiseConv when available
       // (https://github.com/tensorflow/tfjs/issues/2821)
       const savedWebglPackDepthwiseConvFlag =
-          tf.env().get('WEBGL_PACK_DEPTHWISECONV');
+        tf.env().get('WEBGL_PACK_DEPTHWISECONV');
       tf.env().set('WEBGL_PACK_DEPTHWISECONV', true);
       predictions = await this.pipeline.predict(image, predictIrises);
       tf.env().set('WEBGL_PACK_DEPTHWISECONV', savedWebglPackDepthwiseConvFlag);
@@ -299,14 +303,14 @@ export class MediaPipeFaceMesh implements FaceLandmarksPackage {
 
     if (predictions != null && predictions.length > 0) {
       return Promise.all(predictions.map(async (prediction: Prediction, i) => {
-        const {coords, scaledCoords, box, flag} = prediction;
+        const { coords, scaledCoords, box, flag } = prediction;
         let tensorsToRead: tf.Tensor[] = [flag];
         if (!returnTensors) {
           tensorsToRead = tensorsToRead.concat([coords, scaledCoords]);
         }
 
         const tensorValues = await Promise.all(
-            tensorsToRead.map(async (d: tf.Tensor) => d.array()));
+          tensorsToRead.map(async (d: tf.Tensor) => d.array()));
         const flagValue = tensorValues[0] as number;
 
         flag.dispose();
@@ -333,29 +337,29 @@ export class MediaPipeFaceMesh implements FaceLandmarksPackage {
         }
 
         const [coordsArr, coordsArrScaled] =
-            tensorValues.slice(1) as [Coords3D, Coords3D];
+          tensorValues.slice(1) as [Coords3D, Coords3D];
 
         scaledCoords.dispose();
         coords.dispose();
 
         let annotatedPrediction: AnnotatedPredictionValues = {
           faceInViewConfidence: flagValue,
-          boundingBox: {topLeft: box.startPoint, bottomRight: box.endPoint},
+          boundingBox: { topLeft: box.startPoint, bottomRight: box.endPoint },
           mesh: coordsArr,
           scaledMesh: coordsArrScaled
         };
 
         if (flipHorizontal) {
           annotatedPrediction =
-              flipFaceHorizontal(annotatedPrediction, width) as
-              AnnotatedPredictionValues;
+            flipFaceHorizontal(annotatedPrediction, width) as
+            AnnotatedPredictionValues;
         }
 
-        const annotations: {[key: string]: Coords3D} = {};
+        const annotations: { [key: string]: Coords3D } = {};
         for (const key in MESH_ANNOTATIONS) {
           if (predictIrises || key.includes('Iris') === false) {
             annotations[key] = MESH_ANNOTATIONS[key].map(
-                index => annotatedPrediction.scaledMesh[index]);
+              index => annotatedPrediction.scaledMesh[index]);
           }
         }
         annotatedPrediction['annotations'] = annotations;

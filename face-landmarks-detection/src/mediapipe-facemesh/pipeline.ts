@@ -292,8 +292,9 @@ export class Pipeline {
           const enlargedBox = enlargeBox(scaledBox);
           //require('fs').writeFileSync('enlargedBox.json', JSON.stringify(enlargedBox));
           //require('fs').writeFileSync('landmarks.json', JSON.stringify(prediction.landmarks.arraySync() as Coords3D));
+          const squarifiedBox = squarifyBox(enlargedBox);
           return {
-            ...enlargedBox,
+            ...squarifiedBox,
             landmarks: prediction.landmarks.arraySync() as Coords3D
           };
         });
@@ -377,7 +378,7 @@ export class Pipeline {
         const coordsReshaped: tf.Tensor2D = tf.reshape(coords, [-1, 3]);
         let rawCoords = coordsReshaped.arraySync() as Coords3D;
         //console.log(`rawCoords = ${JSON.stringify(rawCoords)}`);
-        require('fs').writeFileSync('rawCoords.json', rawCoords);
+        require('fs').writeFileSync('rawCoords1.json', JSON.stringify(rawCoords));
 
         if (predictIrises) {
           const { box: leftEyeBox, boxSize: leftEyeBoxSize, crop: leftEyeCrop } =
@@ -391,6 +392,10 @@ export class Pipeline {
           } =
             this.getEyeBox(
               rawCoords, face, RIGHT_EYE_BOUNDS[0], RIGHT_EYE_BOUNDS[1]);
+
+          const dataArray = leftEyeCrop.arraySync();
+          const serializedString = JSON.stringify(dataArray);
+          require('fs').writeFileSync('leftEyeCrop.json', serializedString);
 
           const eyePredictions =
             (this.irisModel.predict(
