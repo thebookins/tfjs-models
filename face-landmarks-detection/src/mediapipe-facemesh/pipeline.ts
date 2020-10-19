@@ -329,6 +329,7 @@ export class Pipeline {
         }
 
         const boxCPU = {startPoint: box.startPoint, endPoint: box.endPoint};
+        console.log(`boxCPU = ${JSON.stringify(boxCPU)}`);
         const face: tf.Tensor4D =
             cutBoxFromImageAndResize(boxCPU, rotatedImage, [
               this.meshHeight, this.meshWidth
