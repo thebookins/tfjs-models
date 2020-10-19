@@ -277,7 +277,7 @@ export class Pipeline {
             const enlargedBox = enlargeBox(scaledBox);
             console.log(`enlargedBox = ${JSON.stringify(enlargedBox)}`)
             const squarifiedBox = squarifyBox(enlargedBox);
-            console.log(`squarifiedBox = ${JSON.stringify(enlargedBox)}`)
+            console.log(`squarifiedBox = ${JSON.stringify(squarifiedBox)}`)
             return {
               ...squarifiedBox,
               landmarks: prediction.landmarks.arraySync() as Coords3D
@@ -337,7 +337,7 @@ export class Pipeline {
         const boxCPU = {startPoint: box.startPoint, endPoint: box.endPoint};
         console.log(`boxCPU = ${JSON.stringify(boxCPU)}`);
         const face: tf.Tensor4D =
-            cutBoxFromImageAndResize(boxCPU, rotatedImage, [
+            cutBoxFromImageAndResize(squarifyBox(boxCPU), rotatedImage, [
               this.meshHeight, this.meshWidth
             ]).div(255);
 
