@@ -329,7 +329,7 @@ export class Pipeline {
 
         const boxCPU = {startPoint: box.startPoint, endPoint: box.endPoint};
         const face: tf.Tensor4D =
-            cutBoxFromImageAndResize(boxCPU, rotatedImage, [
+            cutBoxFromImageAndResize(squarifyBox(boxCPU), rotatedImage, [
               this.meshHeight, this.meshWidth
             ]).div(255);
 
