@@ -268,10 +268,16 @@ export class Pipeline {
               endPoint: prediction.box.endPoint.squeeze().arraySync() as Coord2D
             };
 
+            console.log(`predictionBoxCPU = ${JSON.stringify(predictionBoxCPU)}`)
+
             const scaledBox =
                 scaleBoxCoordinates(predictionBoxCPU, scaleFactor as Coord2D);
+            console.log(`scaledBox = ${JSON.stringify(scaledBox)}`)
+
             const enlargedBox = enlargeBox(scaledBox);
+            console.log(`enlargedBox = ${JSON.stringify(enlargedBox)}`)
             const squarifiedBox = squarifyBox(enlargedBox);
+            console.log(`squarifiedBox = ${JSON.stringify(enlargedBox)}`)
             return {
               ...squarifiedBox,
               landmarks: prediction.landmarks.arraySync() as Coords3D
