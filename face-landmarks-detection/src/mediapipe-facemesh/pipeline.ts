@@ -416,7 +416,7 @@ export class Pipeline {
         const prediction: Prediction = {
           coords: tf.tensor2d(rawCoords, [rawCoords.length, 3]),
           scaledCoords: transformedCoords,
-          box: landmarksBox,
+          box: squarifiedLandmarksBox,
           flag: flag.squeeze()
         };
 
