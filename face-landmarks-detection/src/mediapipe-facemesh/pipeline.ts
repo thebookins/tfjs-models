@@ -76,8 +76,8 @@ const MESH_TO_IRIS_INDICES_MAP = [
 // coordinates.
 // Update the z coordinate to be an average of the original and the new. This
 // produces the best visual effect.
-function replaceRawCoordinates(
-    rawCoords: Coords3D, newCoords: Coords3D, prefix: string, keys?: string[]) {
+function replaceCoordinates(
+    coords: Coords3D, newCoords: Coords3D, prefix: string, keys?: string[]) {
   for (let i = 0; i < MESH_TO_IRIS_INDICES_MAP.length; i++) {
     const {key, indices} = MESH_TO_IRIS_INDICES_MAP[i];
     const originalIndices = MESH_ANNOTATIONS[`${prefix}${key}`];
@@ -87,9 +87,9 @@ function replaceRawCoordinates(
       for (let j = 0; j < indices.length; j++) {
         const index = indices[j];
 
-        rawCoords[originalIndices[j]] = [
+        coords[originalIndices[j]] = [
           newCoords[index][0], newCoords[index][1],
-          (newCoords[index][2] + rawCoords[originalIndices[j]][2]) / 2
+          (newCoords[index][2] + coords[originalIndices[j]][2]) / 2
         ];
       }
     }
@@ -173,19 +173,23 @@ export class Pipeline {
   // Returns a box describing a cropped region around the eye fit for passing to
   // the iris model.
   getEyeBox(
-      rawCoords: Coords3D, face: tf.Tensor4D, eyeInnerCornerIndex: number,
+      coords: Coords3D, face: tf.Tensor4D, eyeInnerCornerIndex: number,
       eyeOuterCornerIndex: number,
       flip = false): {box: Box, boxSize: [number, number], crop: tf.Tensor4D} {
     const box = squarifyBox(enlargeBox(
         this.calculateLandmarksBoundingBox(
-            [rawCoords[eyeInnerCornerIndex], rawCoords[eyeOuterCornerIndex]]),
+            [coords[eyeInnerCornerIndex], coords[eyeOuterCornerIndex]]),
         ENLARGE_EYE_RATIO));
     const boxSize = getBoxSize(box);
+
+    const h = face.shape[1];
+    const w = face.shape[2];
+
     let crop = tf.image.cropAndResize(
         face, [[
-          box.startPoint[1] / this.meshHeight,
-          box.startPoint[0] / this.meshWidth, box.endPoint[1] / this.meshHeight,
-          box.endPoint[0] / this.meshWidth
+          box.startPoint[1] / h,
+          box.startPoint[0] / w, box.endPoint[1] / h,
+          box.endPoint[0] / w
         ]],
         [0], [IRIS_MODEL_INPUT_SIZE, IRIS_MODEL_INPUT_SIZE]);
     if (flip) {
@@ -222,13 +226,13 @@ export class Pipeline {
   // The z-coordinates returned for the iris are unreliable, so we take the z
   // values from the surrounding keypoints.
   private getAdjustedIrisCoords(
-      rawCoords: Coords3D, irisCoords: Coords3D,
+      coords: Coords3D, irisCoords: Coords3D,
       direction: 'left'|'right'): Coords3D {
     const upperCenterZ =
-        rawCoords[MESH_ANNOTATIONS[`${direction}EyeUpper0`]
+        coords[MESH_ANNOTATIONS[`${direction}EyeUpper0`]
                                   [IRIS_UPPER_CENTER_INDEX]][2];
     const lowerCenterZ =
-        rawCoords[MESH_ANNOTATIONS[`${direction}EyeLower0`]
+        coords[MESH_ANNOTATIONS[`${direction}EyeLower0`]
                                   [IRIS_LOWER_CENTER_INDEX]][2];
     const averageZ = (upperCenterZ + lowerCenterZ) / 2;
 
