@@ -385,8 +385,8 @@ export class Pipeline {
               this.getLeftToRightEyeDepthDifference(rawCoords);
           if (Math.abs(leftToRightEyeDepthDifference) <
               30) {  // User is looking straight ahead.
-            replaceRawCoordinates(transformedCoords, leftEyeCoords, 'left');
-            replaceRawCoordinates(transformedCoords, rightEyeCoords, 'right');
+            replaceCoordinates(transformedCoords, leftEyeCoords, 'left');
+            replaceCoordinates(transformedCoords, rightEyeCoords, 'right');
           } else if (leftToRightEyeDepthDifference < 1) {  // User is looking
                                                            // towards the
                                                            // right.
@@ -394,11 +394,11 @@ export class Pipeline {
             // coordinates tend to diverge too much from the mesh coordinates
             // for them to be merged. So we only update a single contour line
             // above and below the eye.
-            replaceRawCoordinates(
+            replaceCoordinates(
                 transformedCoords, leftEyeCoords, 'left',
                 ['EyeUpper0', 'EyeLower0']);
           } else {  // User is looking towards the left.
-            replaceRawCoordinates(
+            replaceCoordinates(
                 transformedCoords, rightEyeCoords, 'right',
                 ['EyeUpper0', 'EyeLower0']);
           }
