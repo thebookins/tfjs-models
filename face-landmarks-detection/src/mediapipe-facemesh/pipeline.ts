@@ -76,8 +76,8 @@ const MESH_TO_IRIS_INDICES_MAP = [
 // coordinates.
 // Update the z coordinate to be an average of the original and the new. This
 // produces the best visual effect.
-function replaceCoordinates(
-    coords: Coords3D, newCoords: Coords3D, prefix: string, keys?: string[]) {
+function replaceRawCoordinates(
+    rawCoords: Coords3D, newCoords: Coords3D, prefix: string, keys?: string[]) {
   for (let i = 0; i < MESH_TO_IRIS_INDICES_MAP.length; i++) {
     const {key, indices} = MESH_TO_IRIS_INDICES_MAP[i];
     const originalIndices = MESH_ANNOTATIONS[`${prefix}${key}`];
@@ -87,9 +87,9 @@ function replaceCoordinates(
       for (let j = 0; j < indices.length; j++) {
         const index = indices[j];
 
-        coords[originalIndices[j]] = [
+        rawCoords[originalIndices[j]] = [
           newCoords[index][0], newCoords[index][1],
-          (newCoords[index][2] + coords[originalIndices[j]][2]) / 2
+          (newCoords[index][2] + rawCoords[originalIndices[j]][2]) / 2
         ];
       }
     }
@@ -222,13 +222,13 @@ export class Pipeline {
   // The z-coordinates returned for the iris are unreliable, so we take the z
   // values from the surrounding keypoints.
   private getAdjustedIrisCoords(
-      coords: Coords3D, irisCoords: Coords3D,
+      rawCoords: Coords3D, irisCoords: Coords3D,
       direction: 'left'|'right'): Coords3D {
     const upperCenterZ =
-        coords[MESH_ANNOTATIONS[`${direction}EyeUpper0`]
+        rawCoords[MESH_ANNOTATIONS[`${direction}EyeUpper0`]
                                   [IRIS_UPPER_CENTER_INDEX]][2];
     const lowerCenterZ =
-        coords[MESH_ANNOTATIONS[`${direction}EyeLower0`]
+        rawCoords[MESH_ANNOTATIONS[`${direction}EyeLower0`]
                                   [IRIS_LOWER_CENTER_INDEX]][2];
     const averageZ = (upperCenterZ + lowerCenterZ) / 2;
 
@@ -381,8 +381,8 @@ export class Pipeline {
               this.getLeftToRightEyeDepthDifference(rawCoords);
           if (Math.abs(leftToRightEyeDepthDifference) <
               30) {  // User is looking straight ahead.
-            replaceCoordinates(transformedCoords, leftEyeCoords, 'left');
-            replaceCoordinates(transformedCoords, rightEyeCoords, 'right');
+            replaceRawCoordinates(transformedCoords, leftEyeCoords, 'left');
+            replaceRawCoordinates(transformedCoords, rightEyeCoords, 'right');
           } else if (leftToRightEyeDepthDifference < 1) {  // User is looking
                                                            // towards the
                                                            // right.
@@ -390,11 +390,11 @@ export class Pipeline {
             // coordinates tend to diverge too much from the mesh coordinates
             // for them to be merged. So we only update a single contour line
             // above and below the eye.
-            replaceCoordinates(
+            replaceRawCoordinates(
                 transformedCoords, leftEyeCoords, 'left',
                 ['EyeUpper0', 'EyeLower0']);
           } else {  // User is looking towards the left.
-            replaceCoordinates(
+            replaceRawCoordinates(
                 transformedCoords, rightEyeCoords, 'right',
                 ['EyeUpper0', 'EyeLower0']);
           }
