@@ -21,7 +21,7 @@ import * as tf from '@tensorflow/tfjs-core';
 
 import {Box, cutBoxFromImageAndResize, enlargeBox, getBoxCenter, getBoxSize, scaleBoxCoordinates, squarifyBox} from './box';
 import {MESH_ANNOTATIONS} from './keypoints';
-import {buildRotationMatrix, computeRotation, Coord2D, Coord3D, Coords3D, dot, IDENTITY_MATRIX, invertTransformMatrix, rotatePoint, TransformationMatrix} from './util';
+import {buildRotationMatrix, computeRotation, computeEyeRotation, Coord2D, Coord3D, Coords3D, dot, IDENTITY_MATRIX, invertTransformMatrix, rotatePoint, TransformationMatrix} from './util';
 
 export type Prediction = {
   coords: tf.Tensor2D,        // coordinates of facial landmarks.
@@ -56,6 +56,9 @@ const IRIS_NUM_COORDINATES = 76;
 
 // Factor by which to enlarge the box around the eye landmarks so the input
 // region matches the expectations of the iris model.
+
+// TODO: confirm why this is 2.3 - I would expect 1.5 as per the model card
+// (https://drive.google.com/file/d/1bsWbokp9AklH2ANjCfmjqEzzxO1CNbMu/view)
 const ENLARGE_EYE_RATIO = 2.3;
 const IRIS_MODEL_INPUT_SIZE = 64;
 
@@ -173,80 +176,102 @@ export class Pipeline {
   // Returns a box describing a cropped region around the eye fit for passing to
   // the iris model.
   getEyeBox(
-      coords: Coords3D, face: tf.Tensor4D, eyeInnerCornerIndex: number,
-      eyeOuterCornerIndex: number,
-      flip = false): {box: Box, boxSize: [number, number], crop: tf.Tensor4D} {
+    coords: Coords3D, face: tf.Tensor4D, eyeInnerCornerIndex: number,
+    eyeOuterCornerIndex: number,
+    flip = false): { box: Box, boxSize: [number, number],
+      angle: number, rotationMatrix: TransformationMatrix, crop: tf.Tensor4D } {
+
+    const angle = computeEyeRotation(
+      coords[eyeInnerCornerIndex], coords[eyeOuterCornerIndex], flip);
+
+    const angleCompentationFactor = 1 / Math.max(
+      Math.abs(Math.cos(angle)), Math.abs(Math.sin(angle))
+    );
+
     const box = squarifyBox(enlargeBox(
-        this.calculateLandmarksBoundingBox(
-            [coords[eyeInnerCornerIndex], coords[eyeOuterCornerIndex]]),
-        ENLARGE_EYE_RATIO));
+      this.calculateLandmarksBoundingBox(
+        [coords[eyeInnerCornerIndex], coords[eyeOuterCornerIndex]]),
+      angleCompentationFactor * ENLARGE_EYE_RATIO));
     const boxSize = getBoxSize(box);
 
     const h = face.shape[1];
     const w = face.shape[2];
 
+    const eyeCenter =
+        getBoxCenter({startPoint: box.startPoint, endPoint: box.endPoint});
+    const eyeCenterNormalized: Coord2D = [eyeCenter[0] / w, eyeCenter[1] / h];
+
+    let rotatedImage = face;
+    let rotationMatrix = IDENTITY_MATRIX;
+    if (angle !== 0) {
+      rotatedImage =
+          tf.image.rotateWithOffset(face, angle, 0, eyeCenterNormalized);
+      rotationMatrix = buildRotationMatrix(-angle, eyeCenter);
+    }
+
     let crop = tf.image.cropAndResize(
-        face, [[
-          box.startPoint[1] / h,
-          box.startPoint[0] / w, box.endPoint[1] / h,
-          box.endPoint[0] / w
-        ]],
-        [0], [IRIS_MODEL_INPUT_SIZE, IRIS_MODEL_INPUT_SIZE]);
+      rotatedImage, [[
+        box.startPoint[1] / h,
+        box.startPoint[0] / w, box.endPoint[1] / h,
+        box.endPoint[0] / w
+      ]],
+      [0], [IRIS_MODEL_INPUT_SIZE, IRIS_MODEL_INPUT_SIZE]);
     if (flip) {
       crop = tf.image.flipLeftRight(crop);
     }
 
-    return {box, boxSize, crop};
+    return { box, boxSize, angle, rotationMatrix, crop };
   }
 
   // Given a cropped image of an eye, returns the coordinates of the contours
   // surrounding the eye and the iris.
   getEyeCoords(
       eyeData: Float32Array, eyeBox: Box, eyeBoxSize: [number, number],
-      flip = false): {coords: Coords3D, iris: Coords3D} {
+      angle: number, rotationMatrix: TransformationMatrix, flip = false): { coords: Coords3D, iris: Coords3D } {
     const eyeCoords: Coords3D = [];
     for (let i = 0; i < IRIS_NUM_COORDINATES; i++) {
       const x = eyeData[i * 3];
       const y = eyeData[i * 3 + 1];
       const z = eyeData[i * 3 + 2];
-      eyeCoords.push([
-        (flip ? (1 - (x / IRIS_MODEL_INPUT_SIZE)) :
-                (x / IRIS_MODEL_INPUT_SIZE)) *
-                eyeBoxSize[0] +
-            eyeBox.startPoint[0],
-        (y / IRIS_MODEL_INPUT_SIZE) * eyeBoxSize[1] + eyeBox.startPoint[1],
-        // scale z-coord too...
-        (z / IRIS_MODEL_INPUT_SIZE) * eyeBoxSize[0]
-      ]);
+      eyeCoords.push([(flip ? (IRIS_MODEL_INPUT_SIZE - x) : x), y, z]);
     }
 
-    return {coords: eyeCoords, iris: eyeCoords.slice(IRIS_IRIS_INDEX)};
-  }
+    const scaleFactor =
+    [eyeBoxSize[0] / IRIS_MODEL_INPUT_SIZE, eyeBoxSize[1] / IRIS_MODEL_INPUT_SIZE];
 
-  // The z-coordinates returned for the iris are unreliable, so we take the z
-  // values from the surrounding keypoints.
-  private getAdjustedIrisCoords(
-      coords: Coords3D, irisCoords: Coords3D,
-      direction: 'left'|'right'): Coords3D {
-    const upperCenterZ =
-        coords[MESH_ANNOTATIONS[`${direction}EyeUpper0`]
-                                  [IRIS_UPPER_CENTER_INDEX]][2];
-    const lowerCenterZ =
-        coords[MESH_ANNOTATIONS[`${direction}EyeLower0`]
-                                  [IRIS_LOWER_CENTER_INDEX]][2];
-    const averageZ = (upperCenterZ + lowerCenterZ) / 2;
+    const eyeCoordsScaled = eyeCoords.map(
+      coord => ([
+        scaleFactor[0] * (coord[0] - IRIS_MODEL_INPUT_SIZE / 2),
+        scaleFactor[1] * (coord[1] - IRIS_MODEL_INPUT_SIZE / 2),
+        // scale the z-coordinate here...
+        scaleFactor[0] * coord[2]
+      ])
+    );
 
-    // Iris indices:
-    // 0: center | 1: right | 2: above | 3: left | 4: below
-    return irisCoords.map((coord: Coord3D, i): Coord3D => {
-      let z = averageZ;
-      if (i === 2) {
-        z = upperCenterZ;
-      } else if (i === 4) {
-        z = lowerCenterZ;
-      }
-      return [coord[0], coord[1], z];
-    });
+    const eyeCoordsRotationMatrix = buildRotationMatrix(angle, [0, 0]);
+    const eyeCoordsRotated = eyeCoordsScaled.map(
+      (coord: Coord3D) =>
+        ([...rotatePoint(coord, eyeCoordsRotationMatrix), coord[2]]));
+
+    const inverseRotationMatrix = invertTransformMatrix(rotationMatrix);
+    const eyeBoxCenter = [
+      ...getBoxCenter({ startPoint: eyeBox.startPoint, endPoint: eyeBox.endPoint }), 1
+    ];
+
+    const originalEyeBoxCenter = [
+      dot(eyeBoxCenter, inverseRotationMatrix[0]),
+      dot(eyeBoxCenter, inverseRotationMatrix[1])
+    ];
+
+    const eyeCoordsTransformed = eyeCoordsRotated.map((coord): Coord3D => ([
+      coord[0] + originalEyeBoxCenter[0],
+      coord[1] + originalEyeBoxCenter[1], coord[2]
+    ]));
+
+    return {
+      coords: eyeCoordsTransformed,
+      iris: eyeCoordsTransformed.slice(IRIS_IRIS_INDEX)
+    };
   }
 
   /**
@@ -353,14 +378,28 @@ export class Pipeline {
         let transformedCoords =
           this.transformRawCoords(rawCoords, box, angle, rotationMatrix);
 
+        // TODO: here we are flipping the left eye so that it looks like a right
+        // eye - this is different to the Model Card
+        // (https://drive.google.com/file/d/1bsWbokp9AklH2ANjCfmjqEzzxO1CNbMu/view)
+        // but consistent with examples shown here:
+        // https://google.github.io/mediapipe/solutions/iris.html
+        // clarify which is correct
         if (predictIrises) {
-          const {box: leftEyeBox, boxSize: leftEyeBoxSize, crop: leftEyeCrop} =
+          const {
+            box: leftEyeBox,
+            boxSize: leftEyeBoxSize,
+            angle: leftEyeAngle,
+            rotationMatrix: leftEyeRotationMatrix,
+            crop: leftEyeCrop
+          } =
               this.getEyeBox(
                   transformedCoords, input, LEFT_EYE_BOUNDS[0], LEFT_EYE_BOUNDS[1],
                   true);
           const {
             box: rightEyeBox,
             boxSize: rightEyeBoxSize,
+            angle: rightEyeAngle,
+            rotationMatrix: rightEyeRotationMatrix,
             crop: rightEyeCrop
           } =
               this.getEyeBox(
@@ -374,12 +413,18 @@ export class Pipeline {
           const leftEyeData =
               eyePredictionsData.slice(0, IRIS_NUM_COORDINATES * 3);
           const {coords: leftEyeCoords, iris: leftIrisCoords} =
-              this.getEyeCoords(leftEyeData, leftEyeBox, leftEyeBoxSize, true);
+              this.getEyeCoords(
+                leftEyeData, leftEyeBox, leftEyeBoxSize,
+                leftEyeAngle, leftEyeRotationMatrix, true
+              );
 
           const rightEyeData =
               eyePredictionsData.slice(IRIS_NUM_COORDINATES * 3);
           const {coords: rightEyeCoords, iris: rightIrisCoords} =
-              this.getEyeCoords(rightEyeData, rightEyeBox, rightEyeBoxSize);
+              this.getEyeCoords(
+                rightEyeData, rightEyeBox, rightEyeBoxSize,
+                rightEyeAngle, rightEyeRotationMatrix
+              );
 
           const leftToRightEyeDepthDifference =
               this.getLeftToRightEyeDepthDifference(rawCoords);

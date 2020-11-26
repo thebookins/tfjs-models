@@ -46,6 +46,19 @@ export function computeRotation(
   return normalizeRadians(radians);
 }
 
+/**
+ * Computes the angle of rotation between two anchor points.
+ * @param point1 First anchor point
+ * @param point2 Second anchor point
+ */
+export function computeEyeRotation(
+    point1: Coord2D|Coord3D, point2: Coord2D|Coord3D, flip = false): number {
+  const radians =  (flip) ?
+      Math.atan2(-(point2[1] - point1[1]), -(point2[0] - point1[0])) :
+      -Math.atan2(-(point2[1] - point1[1]), point2[0] - point1[0]);
+  return normalizeRadians(radians);
+}
+
 export function radToDegrees(rad: number): number {
   return rad * 180 / Math.PI;
 }
