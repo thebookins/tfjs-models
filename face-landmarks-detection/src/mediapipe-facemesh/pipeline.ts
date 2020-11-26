@@ -274,6 +274,32 @@ export class Pipeline {
     };
   }
 
+  // The z-coordinates returned for the iris are unreliable, so we take the z
+  // values from the surrounding keypoints.
+  private getAdjustedIrisCoords(
+    rawCoords: Coords3D, irisCoords: Coords3D,
+    direction: 'left' | 'right'): Coords3D {
+    const upperCenterZ =
+      rawCoords[MESH_ANNOTATIONS[`${direction}EyeUpper0`]
+      [IRIS_UPPER_CENTER_INDEX]][2];
+    const lowerCenterZ =
+      rawCoords[MESH_ANNOTATIONS[`${direction}EyeLower0`]
+      [IRIS_LOWER_CENTER_INDEX]][2];
+    const averageZ = (upperCenterZ + lowerCenterZ) / 2;
+
+    // Iris indices:
+    // 0: center | 1: right | 2: above | 3: left | 4: below
+    return irisCoords.map((coord: Coord3D, i): Coord3D => {
+      let z = averageZ;
+      if (i === 2) {
+        z = upperCenterZ;
+      } else if (i === 4) {
+        z = lowerCenterZ;
+      }
+      return [coord[0], coord[1], z];
+    });
+  }
+
   /**
    * Returns an array of predictions for each face in the input.
    * @param input - tensor of shape [1, H, W, 3].
