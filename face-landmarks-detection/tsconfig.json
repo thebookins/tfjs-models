@@ -7,7 +7,6 @@
     "node_modules/"
   ],
   "compilerOptions": {
-    "outDir": "./dist",
-    "types": ["node", "jasmine"]
+    "outDir": "./dist"
   }
 }
